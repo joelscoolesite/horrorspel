@@ -84,6 +84,7 @@
   </div>
   <div class="row" style="margin-top:6px">
     <label class="check"><input type="checkbox" id="chkTurbo"> Turbo (faster training, choppier view)</label>
+    <label class="check" title="Start with a flat course without a gap and make it harder each time the champion masters it"><input type="checkbox" id="chkCurriculum" checked> Curriculum (start easy, course gets harder)</label>
   </div>
   <div class="bar"><div id="evalBar"></div></div>
 
@@ -94,8 +95,9 @@
     <div class="stat"><div class="k">Champion fitness</div><div class="v" id="sFit">–</div></div>
     <div class="stat"><div class="k">Avg distance (8 runs)</div><div class="v" id="sDist">–</div></div>
     <div class="stat wide"><div class="k">Champion body</div><div class="v small" id="sBody">–</div></div>
+    <div class="stat"><div class="k">Course level</div><div class="v" id="sLevel">–</div></div>
     <div class="stat"><div class="k">Species</div><div class="v" id="sSpecies">–</div></div>
-    <div class="stat"><div class="k">Found in gen</div><div class="v" id="sChampGen">–</div></div>
+    <div class="stat wide"><div class="k">Champion found in generation</div><div class="v" id="sChampGen">–</div></div>
   </div>
 
   <h2>Fitness per generation</h2>
@@ -142,6 +144,7 @@
 <script src="lib/OrbitControls.js"></script>
 <!-- Simulatie-kern (geen graphics) -->
 <script src="src/core/config.js"></script>
+<script src="src/core/dmath.js"></script>
 <script src="src/core/rng.js"></script>
 <script src="src/core/physics.js"></script>
 <script src="src/core/parkour.js"></script>

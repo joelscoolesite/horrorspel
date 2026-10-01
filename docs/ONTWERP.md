@@ -148,6 +148,7 @@ dat het organisme *slimmer* beweegt (closed-loop RL).
 
 ---
 
+
 ## 3. Beloningsfunctie & groeikosten
 
 ### De fitness-formule (zie `src/core/episode.js`)
@@ -155,19 +156,22 @@ dat het organisme *slimmer* beweegt (closed-loop RL).
 ```
 fitness =   1.0 × afstand            (verste x van de hoofdbol, in meter)
           + 3   × checkpoints        (spleet, helling, horde, trede)
-          + 20  × finish             (× deel van de trials dat finisht)
+          + 20  × finish             (× deel van de testruns dat finisht)
           + 1   × seconden over      (sneller = beter)
           − 0.15 × extra bollen      ┐
           − 0.05 × stokjes           ├ groeikosten
           − 0.004 × spier-energie    ┘ (∑ |activatie| · dt)
 ```
 
-Elk organisme wordt **2× getest** met een iets andere startpositie en
-startritme. De score is het gemiddelde (*domain randomization*).
+Elk organisme wordt **3× getest**: de standaardstart plus 2 willekeurige
+starts (positie, draaiing ±20°, ritme). Die worden **elke generatie
+opnieuw** geloot. De score is het gemiddelde (*domain randomization*).
+De beste 2 van elke generatie worden daarna nog eens getest op **8 vaste
+starts**. Alleen die score telt voor de kampioen.
 
 ### Hoe voorkomen we dat hij "explodeert" (oneindig groeit)?
 
-Er zijn **vijf lagen** verdediging:
+Er zijn **zes lagen** verdediging:
 
 ```
  1. HARDE LIMIETEN     max 14 bollen, 34 stokjes, stokje 0.25–1.5 m
@@ -178,14 +182,17 @@ Er zijn **vijf lagen** verdediging:
         │
  4. SNOEI-MUTATIES     naast "groei" bestaan ook "verwijder bol/stokje"
         │              → evolutie kan ook kleiner worden
- 5. STABIELE PHYSICS   snelheidslimiet, zachte spieren, groei-animatie
+ 5. NEUTRALE GROEI     een nieuw stokje start met sterkte ≈ 0
+        │              → groeien maakt niets kapot, wordt geleidelijk sterker
+ 6. STABIELE PHYSICS   snelheidslimiet, zachte spieren, groei-animatie
                        (nieuwe bol start op 30% en groeit uit)
                        → geen numerieke explosies
 ```
 
 *Parsimony pressure* (laag 2) is het belangrijkst. Stel de kosten zo
 af dat één checkpoint (3 punten) meer waard is dan ~10 extra bollen. Dan
-groeit hij alleen als het helpt.
+groeit hij alleen als het helpt. Zet in de app *Growth cost per sphere*
+op 0 en kijk wat er gebeurt.
 
 ### Hoe belonen we vooruitgang over het parkour?
 
@@ -193,16 +200,26 @@ groeit hij alleen als het helpt.
 - **Mijlpalen (checkpoints)**: extra bonus na elk obstakel. Zo is
   "over de spleet komen" meer waard dan 1 meter verder schuifelen.
 - **Tijdbonus**: pas belangrijk als hij al finisht.
+- **Curriculum**: het parcours begint vlak zonder spleet (level 0%). Zodra
+  de kampioen in ≥50% van zijn testruns over de spleet komt, wordt alles
+  10% zwaarder (bredere spleet, hogere helling/horde/trede), tot 100%.
 
 ### Valkuilen (die we zelf tegenkwamen!)
 
-| Valkuil | Wat er gebeurt | Oplossing |
+Deze tabel is het eerlijke logboek van het bouwen. Elke regel was een
+echt probleem, gemeten met `tools/train.js`.
+
+| Valkuil | Wat er gebeurde | Oplossing |
 |---|---|---|
 | **Straf voor vallen** | Hij durft de spleet niet meer te proberen en blijft ervoor staan | Géén valstraf: vallen beëindigt de run al |
-| **Physics-exploit** | Eerste versie: 2 bollen + 1 spier "skaten" naar de finish, want wrijving greep ook zonder druk | Echte **Coulomb-wrijving** (grip ∝ normaalkracht) + tragere spieren |
-| **Fragiele kampioenen** | Werkt alleen vanaf exact één startpositie; alle kinderen falen | Meerdere trials met kleine variaties |
-| **Van de baan rollen** | Valt zijwaarts eraf | Lage randen langs de baan |
-| **Groeien is eerst slecht** | Nieuwe bol = brein moet opnieuw leren → wordt meteen weggeselecteerd | **Soorten** (op aantal bollen) beschermen nieuwe vormen |
+| **Physics-exploit** | Eerste versie: 2 bollen + 1 spier "skaten" in 11 s naar de finish, want wrijving greep ook zonder druk | Echte **Coulomb-wrijving** (grip ∝ normaalkracht) + tragere spieren |
+| **Van de baan rollen** | Valt zijwaarts of achterwaarts van de baan | Lage randen + achtermuur |
+| **Geluksvogels** | Kampioen met ±5 cm andere start: afstand tussen 2 en 16 m | Meerdere testruns, elke generatie nieuwe starts |
+| **Groeien is eerst slecht** | Gemeten: nieuwe bol met willekeurige spier verlaagt fitness in 40/40 gevallen | **Neutrale groei** (sterkte-gen start op ≈ 0) + **soorten** die nieuwe vormen beschermen |
+| **Chaos** | Een gewichtsmutatie van σ = 0.02 halveerde al de score | **Vloeiende sensoren** (afstand tot de grond i.p.v. contact aan/uit; deel van 3 kijkpunten boven een gat) → populatiegemiddelde ±2× hoger |
+| **Browser ≠ Node** | `Math.sin`/`tanh` verschillen per JS-engine in de laatste bit → na 2 s een andere run | Eigen `sin`/`cos`/`tanh` met alleen + − × ÷ √ (`dmath.js`) → overal bit-identiek |
+| **Spleet = muur** | 2 van de 3 seeds kwamen nooit over de spleet: iedereen loopt tot de rand en stopt | Langere groeistapjes (`growLenMax` 1.0 → 1.4 m), zodat lange "brug-lichamen" kunnen ontstaan, + curriculum |
+| **Overfitting op de test** | Kampioen scoort 45 op zijn 8 vaste starts, maar ~25 op 30 nieuwe | Bekend effect (*winner's curse*). De getoonde score is optimistisch. Beter: grotere/wisselende validatieset |
 
 > **Regel**: evolutie is een expert in het vinden van bugs. Gebeurt er
 > iets raars? Kijk eerst naar de physics, niet naar de AI.
@@ -217,13 +234,14 @@ groeit hij alleen als het helpt.
    ├── lib/three.min.js, OrbitControls.js    (meegeleverd → werkt offline)
    │
    ├── src/core/          ← SIMULATIE (geen graphics, draait ook in Node.js)
-   │     config.js        alle instellingen
+   │     config.js        alle instellingen (ook de maten van het parcours)
+   │     dmath.js         deterministische sin/cos/tanh (overal bit-gelijk)
    │     rng.js           random met seed (reproduceerbaar)
    │     physics.js       Verlet + PBD: bollen, stokjes, botsing, wrijving
    │     parkour.js       de baan (dozen + gedraaide doos voor de helling)
    │     genome.js        DNA: groeiprogramma + spier-breinen + mutaties
    │     episode.js       één leven: groeien → bewegen → fitness
-   │     evolution.js     populatie, soorten, selectie, elitisme
+   │     evolution.js     populatie, soorten, selectie, curriculum
    │
    ├── src/ui/            ← WEERGAVE
    │     render.js        Three.js-scène
@@ -239,16 +257,16 @@ groeit hij alleen als het helpt.
 
 ```js
 {
-  f: 1.4,                                   // ritme (Hz) van de interne klok
+  f: 1.4,                                    // ritme (Hz) van de interne klok
   nodes: [
-    { p: -1, d: [0,0,0],     l: 0,   r: 0.30 },  // 0: hoofdbol
+    { p: -1, d: [0,0,0],      l: 0,   r: 0.30 },  // 0: hoofdbol
     { p:  0, d: [0.7,-0.7,0], l: 0.6, r: 0.12 },  // 1: groeit uit bol 0
     { p:  1, d: [1,0,0],      l: 0.5, r: 0.15 }   // 2: groeit uit bol 1
   ],
   sticks: [
-    { a: 0, b: 1, m: true,  w: [8 gewichten] },  // spier met eigen brein
-    { a: 1, b: 2, m: false, w: [...] },          // bot
-    { a: 0, b: 2, m: true,  w: [...] }           // spier (maakt een driehoek)
+    { a: 0, b: 1, m: true,  k: 1.0, w: [10 gewichten] },  // spier met eigen brein
+    { a: 1, b: 2, m: false, k: 1.0, w: [...] },           // bot
+    { a: 0, b: 2, m: true,  k: 0.1, w: [...] }            // nieuwe, nog zwakke spier
   ]
 }
 ```
@@ -262,14 +280,17 @@ volle lengte. Daarna gaan de spieren aan.
 ### Het spier-brein (per stokje)
 
 ```
-  sin(klok) ─┐
-  cos(klok) ─┤
-  contact A ─┤
-  contact B ─┼──▶ Σ wᵢ·xᵢ ──▶ tanh ──▶ traag volgen ──▶ lengte = rust × (1 ± 35%)
-  trede?    ─┤                                          (= gewrichtslimiet)
-  gat?      ─┤        "ogen": kijkt 1 m vooruit naar de grond
-  kanteling ─┤
-  bias (1)  ─┘
+  sin(klok)   ─┐
+  cos(klok)   ─┤
+  grond bij A ─┤  "voelen": 1 = raakt de grond, 0 = ≥15 cm erboven
+  grond bij B ─┤
+  trede?      ─┼──▶ Σ wᵢ·xᵢ ──▶ tanh ──▶ traag volgen ──▶ lengte = rust × (1 ± 35%)
+  gat?        ─┤                                          (= gewrichtslimiet)
+  kanteling   ─┤  "ogen": kijkt 0.5, 1.0 en 1.5 m vooruit
+  richting    ─┤  wijst het stokje vooruit?
+  zijwaarts   ─┤  waar op de baan (links/rechts)?
+  bias (1)    ─┘
+            × sterkte-gen (0..1) bepaalt hoe hard het stokje trekt
 ```
 
 ### Physics in het kort (Position Based Dynamics)
@@ -288,14 +309,39 @@ elke stap (1/120 s):
 
 Wat we zagen tijdens het testen:
 
-- **Generatie 0–5**: meeste organismen trillen op hun plek of rollen achteruit.
-- **"Rupsen"**: 2–4 bollen die trekken en strekken, met de grote hoofdbol
-  als anker.
+- **Generatie 0–5**: de meeste organismen trillen op hun plek of rollen achteruit.
+- **"Tuimelaars"**: 3–6 bollen die over zichzelf heen klappen, met de
+  zware hoofdbol als zwaaigewicht. Dit is verreweg de vaakst gevonden strategie.
 - **Sprongen bij de spleet**: de *gat vooruit*-sensor krijgt een groot
-  gewicht. Vlak voor het gat strekt de spier zich ineens volledig uit.
+  gewicht. Vlak voor het gat strekt een spier zich ineens volledig uit.
+- **Lange lichamen** met `growLenMax` 1.4 m: ze leggen zich deels over de
+  spleet heen als een brug.
 - **Klein wint vaak**: met de standaard-groeikosten blijven lichamen klein
-  (3–6 bollen). Zet *Growth cost per sphere* op 0 en kijk hoe grotere
+  (3–7 bollen). Zet *Growth cost per sphere* op 0 en kijk hoe grotere
   lichamen ontstaan. Ze zijn wel moeilijker aan te sturen.
+
+### Verwachtingen (eerlijk)
+
+Gemeten met de standaardinstellingen (`node tools/train.js`, populatie 60).
+*Robuust* = gemiddelde over 30 starts die de evolutie nooit gezien heeft:
+
+| Run | Generaties | Kampioen (8 vaste starts) | Robuust (30 nieuwe starts) | Finish (robuust) | Lichaam |
+|---|---|---|---|---|---|
+| seed 4 | 400 | 58.8 | 38.6 | 37% | 3 bollen, 3 stokjes |
+| seed 1 | 400 | 53.5 | 30.5 | 17% | 8 bollen, 20 stokjes |
+| seed 3 | 250 | 20.4 | 19.1 | 0% (tot de horde) | 6 bollen, 6 stokjes |
+| seed 5 | 400 | 20.3 | 10.5 | 0% (tot de spleet) | 3 bollen, 3 stokjes |
+| seed 2 | 250 | 15.1 | 12.5 | 0% (tot de helling) | 7 bollen, 7 stokjes |
+
+De eerste twee zitten als **★ Example champion** in de app (klik nog eens
+voor het volgende voorbeeld). In de terminal kost één generatie ongeveer
+1 seconde (gemeten op een cloud-server); in de browser is het iets trager
+omdat hij ook tekent.
+
+Evolutie is een **zoekproces met toeval**. Sommige runs (seeds) vinden
+snel een goede strategie, andere blijven lang hangen. Blijft hij na ~150
+generaties steken? Druk op **Reset** voor een nieuwe willekeurige
+populatie, of train langer in de terminal.
 
 ---
 
@@ -305,12 +351,12 @@ Gerangschikt van makkelijk naar moeilijk:
 
 1. **Experimenteer met `config.js`**: spleet breder, trede hoger, meer
    bollen toestaan. Wat verandert er aan de lichamen?
-2. **Curriculum learning**: begin met alleen het vlakke stuk en voeg
-   obstakels pas toe als 50% van de populatie het vorige haalt.
-3. **Symmetrie-mutatie**: "groei een bol + zijn spiegelbeeld". Dit levert
+2. **Symmetrie-mutatie**: "groei een bol + zijn spiegelbeeld". Dit levert
    veel sneller stabiele lopers op (Karl Sims deed dit).
+3. **Betere validatie**: wisselende validatie-starts tegen de *winner's curse*.
 4. **Berichten tussen buren** in het spier-brein. Dan wordt het een echte
    GNN die coördinatie kan leren.
-5. **Web Workers** voor parallelle evaluatie. Let op: dan heb je een
-   lokale webserver nodig (`npx serve`), want `file://` blokkeert workers.
-6. **Python-versie**: genoom → MJCF → MuJoCo, met PPO + GNN als binnenste lus.
+5. **Web Workers** voor parallelle evaluatie (4–8× sneller). Let op: dan heb
+   je een lokale webserver nodig (`npx serve`), want `file://` blokkeert workers.
+6. **Python-versie**: genoom → MJCF → MuJoCo, met PPO + GNN als binnenste lus
+   (zie hoofdstuk 1 en 2).

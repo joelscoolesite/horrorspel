@@ -62,7 +62,15 @@
       this.camera.updateProjectionMatrix();
     }
 
+    // (Her)bouw de baan. Wordt opnieuw aangeroepen als het curriculum-level verandert.
     buildTrack(track) {
+      if (this.trackGroup) {
+        this.scene.remove(this.trackGroup);
+        this.trackGroup.traverse(o => { if (o.geometry) o.geometry.dispose(); if (o.material) o.material.dispose(); });
+      }
+      const group = (this.trackGroup = new T.Group());
+      this.scene.add(group);
+      this.trackLevel = track.level;
       for (const c of track.colliders) {
         const geo = new T.BoxGeometry(c.hx * 2, c.hy * 2, c.hz * 2);
         const mat = new T.MeshStandardMaterial({ color: COLORS[c.kind] || COLORS.ground, roughness: 0.9 });
@@ -71,7 +79,7 @@
         m.rotation.z = c.angle;
         m.receiveShadow = true;
         m.castShadow = c.kind === 'block' || c.kind === 'rail';
-        this.scene.add(m);
+        group.add(m);
       }
       // Rand-lijntjes op de grond: geven gevoel van snelheid/afstand
       const lineMat = new T.LineBasicMaterial({ color: 0x566070 });
@@ -80,7 +88,7 @@
         if (y === -Infinity) continue;
         const g = new T.BufferGeometry().setFromPoints([
           new T.Vector3(x, y + 0.002, -track.halfWidth), new T.Vector3(x, y + 0.002, track.halfWidth)]);
-        this.scene.add(new T.Line(g, lineMat));
+        group.add(new T.Line(g, lineMat));
       }
       // Checkpoint-poortjes + finish
       const gates = track.checkpoints.map(c => ({ x: c.x, color: 0x5ad1c8 }))
@@ -92,15 +100,15 @@
         for (const z of [-Wd, Wd]) {
           const post = new T.Mesh(new T.BoxGeometry(0.06, H, 0.06), mat);
           post.position.set(gt.x, y + H / 2, z);
-          this.scene.add(post);
+          group.add(post);
         }
         const bar = new T.Mesh(new T.BoxGeometry(0.06, 0.06, Wd * 2), mat);
         bar.position.set(gt.x, y + H, 0);
-        this.scene.add(bar);
+        group.add(bar);
         if (gt.finish) {
           const flag = new T.Mesh(new T.PlaneGeometry(0.02, 1), mat);
           flag.position.set(gt.x, y + H - 0.3, 0);
-          this.scene.add(flag);
+          group.add(flag);
         }
       }
     }
@@ -128,6 +136,7 @@
         const m = new T.Mesh(this.cylGeo, mat);
         m.castShadow = true;
         m.userData.muscle = s.m;
+        m.userData.k = s.k === undefined ? 1 : s.k; // zwak stokje = dun
         this.creature.add(m);
         return m;
       });
@@ -156,7 +165,7 @@
         B.sub(A).divideScalar(len || 1);
         m.quaternion.setFromUnitVectors(this._up, B);
         const st = ep.sticks[k];
-        const thick = m.userData.muscle ? 0.045 : 0.035;
+        const thick = (m.userData.muscle ? 0.045 : 0.035) * (0.25 + 0.75 * m.userData.k);
         m.scale.set(thick, len, thick);
         if (m.userData.muscle) {
           // blauw = samengetrokken, rood = uitgerekt

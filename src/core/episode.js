@@ -14,6 +14,7 @@
 (function (G) {
   'use strict';
   const clamp = G.clamp;
+  const M = G.M; // deterministische sin/cos/tanh (zie dmath.js)
 
   const smooth = u => u * u * (3 - 2 * u);
 
@@ -44,7 +45,7 @@
       const W = (this.world = new G.World(track.colliders, P));
       const N = genome.nodes.length;
       // draai het hele bouwplan om de verticale as (yaw)
-      this.cyaw = Math.cos(variant.yaw || 0); this.syaw = Math.sin(variant.yaw || 0);
+      this.cyaw = M.cos(variant.yaw || 0); this.syaw = M.sin(variant.yaw || 0);
       const bp = G.Genome.blueprint(genome).map(p => this._rot(p));
 
       // Hoofdbol staat op de grond bij de start
@@ -52,15 +53,18 @@
       const sz = track.start[2] + variant.dz;
       this.startX = track.start[0]; // afstand altijd vanaf de echte startlijn
       genome.nodes.forEach((n, i) => {
-        const mass = (n.r / 0.15) ** 2; // grotere bol = zwaarder
+        const mass = (n.r * n.r) / 0.0225; // grotere bol = zwaarder (∝ r²)
         W.addNode(sx + bp[i][0], sy + bp[i][1], sz + bp[i][2], n.r, mass);
         W.nodes[i].active = i === 0; // alleen de hoofdbol bestaat al
       });
 
       this.sticks = genome.sticks.map(s => {
-        const rest = clamp(Math.hypot(bp[s.a][0] - bp[s.b][0], bp[s.a][1] - bp[s.b][1],
+        const rest = clamp(M.len3(bp[s.a][0] - bp[s.b][0], bp[s.a][1] - bp[s.b][1],
           bp[s.a][2] - bp[s.b][2]), B.minStick, B.maxStick * 1.25);
-        const k = s.m ? P.muscleStiffness : P.boneStiffness;
+        // sterkte-gen: een nieuw gegroeid stokje begint zwak en wordt
+        // (via mutaties) sterker — zo is groeien geen schok
+        const strength = Math.max(B.minStrength, s.k === undefined ? 1 : s.k);
+        const k = (s.m ? P.muscleStiffness : P.boneStiffness) * strength;
         W.addStick(s.a, s.b, rest, k);
         W.sticks[W.sticks.length - 1].active = false;
         return { rest, act: 0, muscle: s.m, w: s.w, grow: null };
@@ -86,6 +90,7 @@
       this.finishTime = 0;
       this.dead = false;
       this.sensors = [0, 0, 0];
+      this.prox = new Array(N).fill(0);
     }
 
     get root() { return this.world.nodes[0]; }
@@ -109,7 +114,7 @@
       for (const k of this.touching[i]) {
         const ws = W.sticks[k], other = W.nodes[ws.a === i ? ws.b : ws.a];
         if (!other.active) continue;
-        const from = Math.max(0.05, Math.hypot(other.x - n.x, other.y - n.y, other.z - n.z));
+        const from = Math.max(0.05, M.len3(other.x - n.x, other.y - n.y, other.z - n.z));
         ws.active = true;
         ws.len = from;
         this.sticks[k].grow = { t0: this.t, from };
@@ -138,16 +143,31 @@
       const tt = this.t - this.growEnd;
       const fade = Math.min(1, tt / 0.5);
       const ph = 2 * Math.PI * this.genome.f * tt + this.variant.phase;
-      const s0 = Math.sin(ph), c0 = Math.cos(ph);
+      const s0 = M.sin(ph), c0 = M.cos(ph);
 
-      // "Ogen": kijk 1 m vooruit naar de grond
+      // "Ogen": kijk op 0.5, 1.0 en 1.5 m vooruit naar de grond.
+      // Vloeiende waarden (geen aan/uit) → kleine verandering in de wereld
+      // geeft een kleine verandering in gedrag. Dat maakt leren veel makkelijker.
       const hHere = tr.heightAt(root.x, root.z);
-      const hAhead = tr.heightAt(root.x + 1.0, root.z);
       const base = hHere === -Infinity ? root.y - root.r : hHere;
-      const hole = hAhead === -Infinity || hAhead < base - 0.5 ? 1 : 0;
-      const step = hAhead === -Infinity ? 0 : clamp((hAhead - base) * 2, -1, 1);
+      let hole = 0, step = 0;
+      for (let i = 1; i <= 3; i++) {
+        const h = tr.heightAt(root.x + 0.5 * i, root.z);
+        if (h === -Infinity) { hole += 1 / 3; continue; }
+        hole += clamp((base - h) / 0.5, 0, 1) / 3;
+        step += clamp((h - base) * 2, -1, 1) / 3;
+      }
       const side = clamp(root.z / tr.halfWidth, -1, 1); // waar op de baan? (-1 links, +1 rechts)
       this.sensors[0] = step; this.sensors[1] = hole; this.sensors[2] = side;
+
+      // "Voelen": hoe dicht zit elke bol bij de grond? (1 = raakt, 0 = ≥15 cm erboven)
+      const prox = this.prox;
+      for (let i = 0; i < W.nodes.length; i++) {
+        const n = W.nodes[i];
+        if (!n.active) { prox[i] = 0; continue; }
+        const h = tr.heightAt(n.x, n.z);
+        prox[i] = h === -Infinity ? n.contact : Math.max(n.contact * 0.5, clamp(1 - (n.y - n.r - h) / 0.15, 0, 1));
+      }
 
       const amp = this.cfg.body.muscleAmp, speed = this.cfg.body.muscleSpeed;
       for (let k = 0; k < this.sticks.length; k++) {
@@ -156,9 +176,9 @@
         const ws = W.sticks[k], a = W.nodes[ws.a], b = W.nodes[ws.b], w = st.w;
         const tilt = clamp((b.y - a.y) / st.rest, -1, 1);    // wijst het stokje omhoog?
         const fwd = clamp((b.x - a.x) / st.rest, -1, 1);     // wijst het stokje vooruit?
-        const sum = w[0] * s0 + w[1] * c0 + w[2] * a.contact + w[3] * b.contact +
+        const sum = w[0] * s0 + w[1] * c0 + w[2] * prox[ws.a] + w[3] * prox[ws.b] +
           w[4] * step + w[5] * hole + w[6] * tilt + w[7] * fwd + w[8] * side + w[9];
-        st.act += (Math.tanh(sum) - st.act) * speed; // traag bijsturen: geen schokken
+        st.act += (M.tanh(sum) - st.act) * speed; // traag bijsturen: geen schokken
         ws.len = st.rest * (1 + amp * st.act * fade);
         this.energy += Math.abs(st.act) * fade * dt;
       }
@@ -204,6 +224,7 @@
       return {
         maxX: this.maxX,
         checkpoints: cps,
+        passedGap: cps >= 1 ? 1 : 0,
         finished: this.finished,
         finishTime: this.finishTime,
         energy: this.energy,
@@ -242,6 +263,7 @@
       maxX: avg('maxX'),
       checkpoints: avg('checkpoints'),
       finishRate: list.filter(x => x.finished).length / list.length,
+      gapRate: avg('passedGap'),          // deel van de runs dat over de spleet kwam
       finishTime: avg('finishTime'),
       energy: avg('energy'),
       trials: list.length,

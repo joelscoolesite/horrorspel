@@ -22,12 +22,13 @@
     ctx.fillStyle = col('--muted');
 
     if (history.length < 2) {
-      ctx.fillText('Grafiek verschijnt na 2 generaties…', pad.l, pad.t + ph / 2);
+      ctx.fillText('Chart appears after 2 generations…', pad.l, pad.t + ph / 2);
       return;
     }
     let lo = Infinity, hi = -Infinity;
     for (const p of history) { lo = Math.min(lo, p.avg, p.champ); hi = Math.max(hi, p.champ, p.best); }
     lo = Math.min(0, lo); if (hi - lo < 1) hi = lo + 1;
+    hi += (hi - lo) * 0.08; // beetje ruimte boven de lijn
     const X = i => pad.l + (i / (history.length - 1)) * pw;
     const Y = v => pad.t + ph - ((v - lo) / (hi - lo)) * ph;
 

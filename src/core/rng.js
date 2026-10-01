@@ -20,17 +20,19 @@
     chance(p) { return this.next() < p; }
     pick(arr) { return arr[this.int(arr.length)]; }
 
-    // Normaal verdeeld (gemiddelde 0, spreiding 1) — Box-Muller
+    // (Bijna) normaal verdeeld, gemiddelde 0, spreiding 1.
+    // Som van 6 uniforme getallen (Irwin-Hall): alleen + − × → op elke
+    // computer exact hetzelfde (Math.log/cos zijn dat niet gegarandeerd).
     gauss() {
-      let u = 0;
-      while (u === 0) u = this.next();
-      return Math.sqrt(-2 * Math.log(u)) * Math.cos(2 * Math.PI * this.next());
+      let s = 0;
+      for (let i = 0; i < 6; i++) s += this.next();
+      return (s - 3) * 1.4142135623730951;
     }
 
     // Willekeurige richting (lengte 1)
     unitVec() {
       const x = this.gauss(), y = this.gauss(), z = this.gauss();
-      const l = Math.hypot(x, y, z) || 1;
+      const l = Math.sqrt(x * x + y * y + z * z) || 1;
       return [x / l, y / l, z / l];
     }
   }

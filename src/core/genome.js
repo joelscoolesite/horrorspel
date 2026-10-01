@@ -7,7 +7,7 @@
 //    nodes[0]  = hoofdbol (root)
 //    nodes[i]  = { p: ouder, d: richting, l: lengte, r: straal }
 //                "groei vanuit bol p, in richting d, op afstand l"
-//    sticks[k] = { a, b, m: spier?, w: [10 gewichten] }
+//    sticks[k] = { a, b, m: spier?, k: sterkte 0..1, w: [10 gewichten] }
 //                verbinding tussen bol a en b. Als m = true is het
 //                een spier met zijn eigen mini-brein (w).
 //
@@ -31,7 +31,7 @@
   const NIN = 10;
   let nextId = 1;
 
-  const dist = (a, b) => Math.hypot(a[0] - b[0], a[1] - b[1], a[2] - b[2]);
+  const dist = (a, b) => G.M.len3(a[0] - b[0], a[1] - b[1], a[2] - b[2]);
 
   const Genome = {
     NIN,
@@ -66,13 +66,13 @@
       return w;
     },
 
-    // neutral = true: het nieuwe stokje begint "stil" (gewichten ≈ 0, dus
-    // gedraagt zich als een bot). Zo maakt groeien het organisme niet meteen
-    // kapot; evolutie leert de nieuwe spier daarna stap voor stap gebruiken.
+    // neutral = true: het nieuwe stokje begint "stil": sterkte ≈ 0 en
+    // brein ≈ 0. Het organisme beweegt dus precies zoals zijn ouder.
+    // Mutaties maken het stokje daarna stap voor stap sterker.
     // (Hetzelfde principe als NEAT: nieuwe structuur start neutraal.)
     newStick(a, b, rng, neutral = false) {
       const w = neutral ? new Array(NIN).fill(0).map(() => rng.gauss() * 0.05) : Genome.randomWeights(rng);
-      return { a, b, m: rng.chance(0.75), w };
+      return { a, b, m: rng.chance(0.75), k: neutral ? 0 : 1, w };
     },
 
     // Bouwtekening: waar komt elke bol (relatief aan de hoofdbol)?
@@ -115,7 +115,7 @@
       for (let tries = 0; tries < 12; tries++) {
         const p = rng.int(g.nodes.length);
         const d = rng.unitVec();
-        const l = rng.range(B.minStick + 0.15, 1.0);
+        const l = rng.range(B.minStick + 0.15, B.growLenMax);
         const pos = [P[p][0] + d[0] * l, P[p][1] + d[1] * l, P[p][2] + d[2] * l];
         if (P.some(q => dist(q, pos) < 0.3)) continue; // niet in een andere bol groeien
 
@@ -196,6 +196,7 @@
           else if (rng.chance(M.weightRate)) s.w[k] += rng.gauss() * M.weightSigma;
         }
         if (rng.chance(M.toggleMuscle)) s.m = !s.m;
+        if (rng.chance(M.strengthRate)) s.k = clamp((s.k === undefined ? 1 : s.k) + rng.gauss() * 0.2 + 0.05, 0, 1);
       }
       if (rng.chance(M.freqRate)) g.f = clamp(g.f + rng.gauss() * M.freqSigma, 0.3, 3.0);
 
@@ -204,7 +205,7 @@
         const n = g.nodes[i];
         if (rng.chance(M.morphRate)) {
           const d = n.d.map(v => v + rng.gauss() * 0.25);
-          const l = Math.hypot(d[0], d[1], d[2]) || 1;
+          const l = G.M.len3(d[0], d[1], d[2]) || 1;
           n.d = d.map(v => v / l);
           n.l = clamp(n.l + rng.gauss() * 0.1, B.minStick, B.maxStick);
         }
@@ -223,7 +224,9 @@
 
     describe(g) {
       const muscles = g.sticks.filter(s => s.m).length;
-      return `${g.nodes.length} bollen · ${g.sticks.length} stokjes (${muscles} spieren)`;
+      const weak = g.sticks.filter(s => s.k !== undefined && s.k < 0.3).length;
+      return `${g.nodes.length} bollen · ${g.sticks.length} stokjes (${muscles} spieren` +
+        (weak ? `, ${weak} nog zwak)` : ')');
     },
 
     // Na het laden van een JSON-bestand: oudere/onvolledige genomen repareren
@@ -235,6 +238,7 @@
         s.w = (s.w || []).slice(0, NIN);
         while (s.w.length < NIN) s.w.push(0);
         s.m = !!s.m;
+        s.k = Number.isFinite(s.k) ? clamp(s.k, 0, 1) : 1;
       }
       if (g.id >= nextId) nextId = g.id + 1;
       return g;

@@ -16,7 +16,8 @@ vlak → spleet → helling → horde → hoge trede → finish.
 1. Download de repo: op GitHub **Code → Download ZIP**, en pak hem uit.
 2. Dubbelklik op **`index.html`**. Hij opent in Chrome/Edge/Firefox.
 3. Klik **▶ Start training** en zet **Turbo** aan.
-4. Of klik **★ Example champion** om meteen een getraind organisme te zien.
+4. Of klik **★ Example champion** om meteen een getraind organisme te zien
+   (klik nog eens voor het tweede voorbeeld: een groot lichaam van 8 bollen).
 
 Alles staat in de map, ook Three.js. Er is dus geen internet of installatie nodig.
 
@@ -48,12 +49,21 @@ node tools/make-example.js champions\champion.json          (wordt de "Example c
 |---|---|
 | **▶ Start training** | Evolutie draait op de achtergrond; de kampioen wordt live getoond |
 | **Turbo** | Meer rekentijd voor training (beeld wordt wat schokkeriger) |
+| **Curriculum** | Begint met een vlakke baan zonder gat; wordt steeds 10% moeilijker zodra de kampioen het beheerst |
 | **Muis** | Slepen = draaien · scroll = zoomen · rechts slepen = verschuiven |
 | **Sliders** | Groeikosten, energiekosten, mutatiekans… direct effect |
 | **Download / Load JSON** | Organisme opslaan of delen |
 | **Restore last session** | De browser onthoudt je laatste kampioen |
 
 Kleuren: 🟠 hoofdbol · 🔵 knooppunt · ⚪ bot · spier **blauw = samengetrokken**, **rood = uitgerekt**.
+
+## ⏱ Wat kun je verwachten?
+
+- Na ~10–30 generaties: hij beweegt vooruit en het curriculum-level stijgt.
+- Na ~50–300 generaties: over de spleet, de helling op, soms de finish.
+- Evolutie heeft **toeval**: niet elke run lukt. Blijft hij lang steken?
+  Druk op **Reset** voor een nieuwe populatie. In onze tests haalden
+  2 van de 5 runs geregeld de finish (zie [docs/ONTWERP.md](docs/ONTWERP.md#verwachtingen-eerlijk)).
 
 ## 🧠 Hoe werkt het?
 
@@ -76,6 +86,8 @@ In het kort:
 index.html            ← open dit
 src/core/             simulatie + AI (werkt in browser én Node.js)
   config.js           ★ alle instellingen: begin hier met experimenteren
+                        (o.a. breedte spleet, hoogte trede, max bollen)
+  dmath.js            eigen sin/cos/tanh → overal exact dezelfde simulatie
   physics.js          zwaartekracht, stokjes, botsingen, wrijving
   parkour.js          de baan: pas obstakels hier aan
   genome.js           DNA + mutaties (groeien/snoeien)

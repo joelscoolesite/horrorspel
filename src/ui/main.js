@@ -28,6 +28,7 @@
 
   // ---------------- replay ----------------
   function startReplay(genome) {
+    if (view.trackLevel !== evo.track.level) view.buildTrack(evo.track); // level veranderd?
     replayGenome = genome;
     replay = new G.Episode(genome, evo.track, cfg);
     view.setCreature(genome);
@@ -40,7 +41,8 @@
   startReplay(G.Genome.root(cfg));
 
   // ---------------- checkpoints-chips ----------------
-  const cpEls = evo.track.checkpoints.map(c => c.label).concat(['Finish']).map(label => {
+  const CP_NAMES = { Spleet: 'Gap', Helling: 'Ramp', Horde: 'Hurdle', Trede: 'Step' };
+  const cpEls = evo.track.checkpoints.map(c => CP_NAMES[c.label] || c.label).concat(['Finish']).map(label => {
     const el = document.createElement('span');
     el.className = 'cp';
     el.textContent = label;
@@ -82,6 +84,12 @@
   }
   $('btnTrain').onclick = () => setTraining(!training);
   $('chkTurbo').onchange = e => { turbo = e.target.checked; };
+  $('chkCurriculum').checked = !!cfg.evo.curriculum;
+  $('chkCurriculum').onchange = e => {
+    cfg.evo.curriculum = e.target.checked ? 1 : 0;
+    if (!e.target.checked) { evo.setLevel(1); toast('Full course from now on'); }
+    else toast('Curriculum on: press Reset to start again from an easy course');
+  };
   $('chkFollow').onchange = e => { view.follow = e.target.checked; };
   $('selSpeed').onchange = e => { speed = +e.target.value; };
   $('btnReplay').onclick = () => replayGenome && startReplay(replayGenome);
@@ -89,6 +97,7 @@
   $('btnReset').onclick = () => {
     evo = new G.Evolution(cfg, (Math.random() * 1e9) | 0);
     replayVersion = -1;
+    lastLevel = evo.level;
     startReplay(G.Genome.root(cfg));
     drawChart();
     toast('New random population');
@@ -111,34 +120,41 @@
     if (!file) return;
     try {
       const data = JSON.parse(await file.text());
-      adoptGenome(data.genome || data, file.name);
+      adoptGenome(data.genome || data, file.name, data.level);
     } catch (err) {
       toast('Could not read that file: ' + err.message);
     }
   };
 
+  // Elke klik: volgend voorbeeld (champions/example.js)
+  let exampleIdx = 0;
   $('btnExample').onclick = () => {
-    if (!G.EXAMPLE_CHAMPION) return toast('No example champion bundled');
-    adoptGenome(G.EXAMPLE_CHAMPION.genome, 'example champion');
+    const list = G.EXAMPLES || [];
+    if (!list.length) return toast('No example champion bundled');
+    const ex = list[exampleIdx++ % list.length];
+    adoptGenome(G.Genome.clone(ex.genome), `example ${(exampleIdx - 1) % list.length + 1}/${list.length} (${ex.name})`, ex.level);
   };
 
   $('btnRestore').onclick = () => {
     let raw = null;
     try { raw = localStorage.getItem(STORAGE_KEY); } catch (_) { /* opslag geblokkeerd */ }
     if (!raw) return toast('No saved champion in this browser');
-    adoptGenome(JSON.parse(raw).genome, 'last session');
+    const data = JSON.parse(raw);
+    adoptGenome(data.genome, 'last session', data.level);
   };
 
-  // Geladen genoom: meten, in de populatie zetten, en laten zien
-  function adoptGenome(genome, name) {
+  // Geladen genoom: meten, in de populatie zetten, en laten zien.
+  // level = het parcours-level waarop hij getraind is (oudere bestanden: volledig)
+  function adoptGenome(genome, name, level = 1) {
     if (!genome || !Array.isArray(genome.nodes) || !Array.isArray(genome.sticks)) {
       return toast('That file is not a GrowBot genome');
     }
     G.Genome.normalize(genome);
+    if (level > evo.level) evo.setLevel(level);
     const { stats, fitness } = evo.evaluate(genome);
     evo.inject(genome);
     if (!evo.champion || fitness > evo.champion.fitness) {
-      evo.champion = { genome: G.Genome.clone(genome), fitness, stats, generation: evo.generation };
+      evo.champion = { genome: G.Genome.clone(genome), fitness, stats, generation: evo.generation, level: evo.level };
       evo.championVersion++;
       replayVersion = evo.championVersion;
     }
@@ -160,6 +176,15 @@
   }
 
   // ---------------- UI bijwerken ----------------
+  const REASONS = { 'gevallen': 'fell into a gap', 'finish!': '🏁 finished!', 'vastgelopen': 'stuck',
+    'tijd op': 'time is up', 'instabiel': 'unstable' };
+  function describeBody(g) {
+    const muscles = g.sticks.filter(s => s.m).length;
+    const weak = g.sticks.filter(s => s.k !== undefined && s.k < 0.3).length;
+    return `${g.nodes.length} spheres · ${g.sticks.length} sticks (${muscles} muscles` +
+      (weak ? `, ${weak} still weak)` : ')');
+  }
+
   function drawChart() { G.drawChart($('chart'), evo.history); }
 
   let evalCounter = { t: performance.now(), n: 0, rate: 0 };
@@ -177,11 +202,12 @@
       $('sFit').textContent = c.fitness.toFixed(1);
       $('sDist').textContent = c.stats.maxX.toFixed(1) + ' m' +
         (c.stats.finishRate > 0 ? ` · 🏁${(c.stats.finishRate * 100).toFixed(0)}%` : '');
-      $('sBody').textContent = G.Genome.describe(c.genome);
+      $('sBody').textContent = describeBody(c.genome);
       $('sChampGen').textContent = c.generation;
     }
     const h = evo.history[evo.history.length - 1];
     if (h) $('sSpecies').textContent = h.species;
+    $('sLevel').textContent = evo.level >= 1 ? 'full' : `${Math.round(evo.level * 100)}%`;
   }
 
   function updateHud() {
@@ -189,7 +215,7 @@
     const growing = replay.t < replay.growEnd;
     const grown = replay.world.nodes.filter(n => n.active).length;
     let state;
-    if (replay.done) state = replay.reason;
+    if (replay.done) state = REASONS[replay.reason] || replay.reason;
     else if (growing) state = `growing… ${grown}/${replay.genome.nodes.length} spheres`;
     else if (replay.genome.sticks.length === 0) state = 'one sphere (needs to grow!)';
     else state = 'moving';
@@ -205,7 +231,7 @@
   }
 
   // ---------------- hoofd-lus ----------------
-  let last = performance.now(), frameNo = 0;
+  let last = performance.now(), frameNo = 0, lastLevel = evo.level;
   function frame(now) {
     const realDt = Math.min(0.1, (now - last) / 1000);
     last = now;
@@ -217,7 +243,9 @@
         replayVersion = evo.championVersion;
         saveChampion();
         startReplay(G.Genome.clone(evo.champion.genome));
-        toast(`New champion! fitness ${evo.champion.fitness.toFixed(1)}`);
+        toast(lastLevel !== evo.level ? `Course level up → ${Math.round(evo.level * 100)}%`
+          : `New champion! fitness ${evo.champion.fitness.toFixed(1)}`);
+        lastLevel = evo.level;
       }
     }
 
@@ -243,5 +271,5 @@
   requestAnimationFrame(frame);
 
   // voor in de browser-console: GROW.app.evo enz.
-  G.app = { get evo() { return evo; }, view, startReplay };
+  G.app = { get evo() { return evo; }, view, startReplay, replayEpisode: () => replay };
 })((globalThis.GROW = globalThis.GROW || {}));

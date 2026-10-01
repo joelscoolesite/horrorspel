@@ -29,7 +29,9 @@
       this.cfg = cfg;
       this.seed = seed;
       this.rng = new G.RNG(seed);
-      this.track = G.buildParkour();
+      // Curriculum: begin op level 0 (makkelijk) of meteen op 1 (volledig)
+      this.level = cfg.evo.curriculum ? 0 : 1;
+      this.track = G.buildParkour(cfg, this.level);
       this.generation = 0;
       this.population = [];
       for (let i = 0; i < cfg.evo.popSize; i++) {
@@ -114,7 +116,7 @@
         if (!this.champion || v.fitness > this.champion.fitness) {
           this.champion = {
             genome: G.Genome.clone(cand.genome), fitness: v.fitness,
-            stats: v.stats, generation: this.generation
+            stats: v.stats, generation: this.generation, level: this.level
           };
           this.championVersion++;
         }
@@ -123,13 +125,20 @@
       this.history.push({
         gen: this.generation, best: best.fitness, avg, champ: this.champion.fitness,
         dist: best.stats.maxX, finishRate: best.stats.finishRate,
-        nodes: best.genome.nodes.length, sticks: best.genome.sticks.length, species
+        nodes: best.genome.nodes.length, sticks: best.genome.sticks.length, species,
+        level: this.level
       });
 
       this.population = this._breed(pop);
       this.generation++;
       this.idx = 0;
       this._newTrials();
+
+      // Curriculum: beheerst de kampioen dit level? Dan wordt het moeilijker.
+      const E = this.cfg.evo;
+      if (E.curriculum && this.level < 1 && this.champion.stats.gapRate >= E.levelPass) {
+        this.setLevel(Math.min(1, Math.round((this.level + E.levelStep) * 100) / 100));
+      }
     }
 
     _breed(sorted) {
@@ -176,6 +185,24 @@
         next.push({ genome: G.Genome.mutate(parent.genome, rng, this.cfg), fitness: null, stats: null });
       }
       return next.slice(0, Math.max(E.popSize, 1));
+    }
+
+    // Nieuw level → nieuwe baan; de kampioen moet zich opnieuw bewijzen
+    setLevel(level) {
+      if (level === this.level) return;
+      this.level = level;
+      this.track = G.buildParkour(this.cfg, level);
+      this.cur = null;
+      this.trialRuns = [];
+      this.idx = 0;
+      for (const ind of this.population) { ind.stats = null; ind.fitness = null; }
+      if (this.champion) {
+        const v = this.evaluate(this.champion.genome);
+        this.champion.fitness = v.fitness;
+        this.champion.stats = v.stats;
+        this.champion.level = level;
+        this.championVersion++;
+      }
     }
 
     // Zet een geladen genoom in de populatie (vervangt de laatste)

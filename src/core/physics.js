@@ -32,8 +32,11 @@
     constructor(o) {
       this.cx = o.cx; this.cy = o.cy; this.cz = o.cz || 0;
       this.hx = o.hx; this.hy = o.hy; this.hz = o.hz;        // halve afmetingen
-      this.angle = o.angle || 0;
-      this.c = Math.cos(this.angle); this.s = Math.sin(this.angle);
+      // rotatie om de z-as als (cos, sin) — exact meegegeven, niet via
+      // Math.cos/sin (die kunnen per browser 1 bit verschillen)
+      this.c = o.c !== undefined ? o.c : 1;
+      this.s = o.s !== undefined ? o.s : 0;
+      this.angle = Math.atan2(this.s, this.c); // alleen voor de weergave
       this.kind = o.kind || 'ground';
       this.friction = o.friction !== undefined ? o.friction : 0.85;
       // omhullende doos in wereld-coördinaten → snel "kan niet raken" testen
