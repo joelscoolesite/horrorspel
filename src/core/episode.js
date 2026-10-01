@@ -11,7 +11,7 @@
 //
 //  Stoppen gebeurt ook bij: finish gehaald, in een gat gevallen,
 //  of 5 seconden geen vooruitgang (stagnatie).
-(function (G) {
+GROW_MODULE(function (G) {
   'use strict';
   const clamp = G.clamp;
   const M = G.M; // deterministische sin/cos/tanh (zie dmath.js)
@@ -277,4 +277,4 @@
   G.mergeSummaries = mergeSummaries;
   G.Episode = Episode;
   G.computeFitness = computeFitness;
-})((globalThis.GROW = globalThis.GROW || {}));
+});

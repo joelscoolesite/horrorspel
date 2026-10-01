@@ -15,7 +15,7 @@
 //
 //  De maten (breedte spleet, hoogtes) staan in config.js → parkour.
 //
-(function (G) {
+GROW_MODULE(function (G) {
   'use strict';
 
   // level = moeilijkheid 0..1 (curriculum). Bij 0 is alles vlak en is er
@@ -103,4 +103,4 @@
   }
 
   G.buildParkour = buildParkour;
-})((globalThis.GROW = globalThis.GROW || {}));
+});

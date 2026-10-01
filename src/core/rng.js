@@ -2,7 +2,7 @@
 //  rng.js — reproduceerbare random getallen (met een "seed")
 // =============================================================
 // Zelfde seed = exact dezelfde evolutie. Handig om te debuggen.
-(function (G) {
+GROW_MODULE(function (G) {
   'use strict';
 
   class RNG {
@@ -38,4 +38,4 @@
   }
 
   G.RNG = RNG;
-})((globalThis.GROW = globalThis.GROW || {}));
+});

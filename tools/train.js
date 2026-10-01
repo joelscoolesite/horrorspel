@@ -10,6 +10,7 @@
 //    node tools/train.js --set fitness.nodeCost=0.3 --set evo.tournament=4
 //    node tools/train.js --set evo.curriculum=0      (meteen het volledige parcours)
 //    node tools/train.js --level 0.5                 (start op halve moeilijkheid)
+//    node tools/train.js --workers 1                 (maar één CPU-kern gebruiken)
 //
 //  Het beste organisme wordt opgeslagen in champions/champion.json.
 //  In de browser laad je dat met de knop "Load JSON".
@@ -44,6 +45,10 @@ for (const kv of args.set) {
 }
 const out = args.out || path.join(root, 'champions', 'champion.json');
 
+const os = require('os');
+const NodePool = require('./pool-node.js');
+const nWorkers = args.workers !== undefined ? parseInt(args.workers, 10) : os.cpus().length;
+
 const evo = new G.Evolution(G.CONFIG, seed);
 if (args.level !== undefined) evo.setLevel(parseFloat(args.level));
 if (args.from) {
@@ -53,16 +58,20 @@ if (args.from) {
   console.log('Start-genoom geladen uit', args.from, '(level', evo.level + ')');
 }
 
-console.log(`Training: ${gens} generaties, populatie ${G.CONFIG.evo.popSize}, seed ${seed}`);
+const pool = nWorkers > 1 ? new NodePool(nWorkers) : null;
+if (pool) evo.setPool(pool);
+console.log(`Training: ${gens} generaties, populatie ${G.CONFIG.evo.popSize}, seed ${seed}, ` +
+  `${pool ? nWorkers + ' CPU-kernen' : '1 CPU-kern'}`);
 console.log('gen | level | kampioen | beste  | gem.   | afstand | finish | bollen/stokjes | soorten | tijd');
 console.log('    |       | (8 vaste | (deze generatie, gemiddeld over 3 willekeurige starts)');
 console.log('    |       |  starts) |');
 const t0 = Date.now();
 let savedVersion = 0;
 
+(async () => {
 for (let g = 0; g < gens; g++) {
   const tg = Date.now();
-  evo.runGeneration();
+  await evo.runGenerationAsync();
   const h = evo.history[evo.history.length - 1];
   console.log(
     `${String(h.gen).padStart(3)} | ${(h.level * 100).toFixed(0).padStart(4)}% | ${h.champ.toFixed(2).padStart(8)} | ${h.best.toFixed(2).padStart(6)} | ${h.avg.toFixed(2).padStart(6)} | ` +
@@ -83,3 +92,5 @@ console.log(`Kampioen (gen ${c.generation}, gemeten op parcours-level ${Math.rou
   `${c.stats.checkpoints.toFixed(1)} checkpoints, finish in ${(c.stats.finishRate * 100).toFixed(0)}% van de 8 testritten`);
 console.log(`Vorm: ${G.Genome.describe(c.genome)}`);
 console.log(`Opgeslagen: ${out}`);
+if (pool) await pool.close();
+})();

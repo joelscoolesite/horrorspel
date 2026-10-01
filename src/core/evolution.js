@@ -20,12 +20,19 @@
 //  3. SOORTEN (uit NEAT) — DNA's met hetzelfde aantal bollen vormen een
 //     soort. Een nieuwe, grotere vorm is eerst vaak slechter (het brein
 //     moet nog leren). Door soorten te beschermen krijgt hij de tijd.
-(function (G) {
+//
+//  SNELHEID — elke run (organisme × start) is een losse TAAK in een
+//  wachtrij. Zonder "pool" draaien de taken hier (één CPU-kern). Met een
+//  pool (Web Workers in de browser, worker_threads in Node) draaien ze
+//  tegelijk op alle kernen. Resultaten komen op een vaste plek terecht,
+//  dus de uitkomst is precies hetzelfde, in welke volgorde ze ook klaar zijn.
+GROW_MODULE(function (G) {
   'use strict';
   const now = () => (globalThis.performance ? performance.now() : Date.now());
 
   class Evolution {
-    constructor(cfg, seed = 1) {
+    // opts.seedGenome: start met dit lichaam (bouw-modus) i.p.v. willekeurige DNA's
+    constructor(cfg, seed = 1, opts = {}) {
       this.cfg = cfg;
       this.seed = seed;
       this.rng = new G.RNG(seed);
@@ -35,61 +42,133 @@
       this.generation = 0;
       this.population = [];
       for (let i = 0; i < cfg.evo.popSize; i++) {
-        this.population.push({ genome: G.Genome.initial(this.rng, cfg), fitness: null, stats: null });
+        let genome;
+        if (opts.seedGenome) {
+          genome = i === 0 ? G.Genome.clone(opts.seedGenome) : G.Genome.rebrain(opts.seedGenome, this.rng);
+        } else {
+          genome = G.Genome.initial(this.rng, cfg);
+        }
+        this.population.push({ genome, fitness: null, stats: null });
       }
-      this.idx = 0;
-      this.cur = null;
-      this.trialRuns = [];
-      this._newTrials();
       this.history = [];
       this.champion = null;
       this.championVersion = 0;
       this.evaluations = 0;
+      this.pool = null;
+      this.epoch = 0;
+      this._newTrials();
+      this._startGeneration();
     }
 
-    // Starts voor deze generatie: altijd de standaard-start + willekeurige
+    // Parallel rekenen aan/uit (pool = null → alles op deze kern)
+    setPool(pool) {
+      this.pool = pool;
+      this._startGeneration(); // lopende taken opnieuw verdelen
+    }
+
+    // Starts voor deze generatie: allemaal willekeurig (of, met
+    // evo.nominalTrial = 1, altijd ook de standaard-start erbij)
     _newTrials() {
       const n = Math.max(1, this.cfg.evo.trials | 0);
-      this.trials = [G.NOMINAL];
-      for (let i = 1; i < n; i++) this.trials.push(G.randomVariant(this.rng));
+      this.trials = this.cfg.evo.nominalTrial ? [G.NOMINAL] : [];
+      while (this.trials.length < n) this.trials.push(G.randomVariant(this.rng));
     }
 
-    // Evalueer individuen tot het tijdsbudget (ms) op is.
+    // Zet alle taken voor de huidige generatie in de wachtrij
+    _startGeneration() {
+      this.epoch++;            // resultaten van oudere taken worden genegeerd
+      this.queue = [];
+      this.inflight = 0;
+      this.phase = 'eval';
+      if (this.pool) { this.pool.cancelPending(); this.pool.setConfig(this.cfg); }
+      this.population.forEach((ind, i) => {
+        ind.runs = new Array(this.trials.length).fill(null);
+        ind.stats = null;
+        ind.fitness = null;
+        this.trials.forEach((variant, k) => this.queue.push({ kind: 'eval', i, k, genome: ind.genome, variant }));
+      });
+      this.jobsTotal = this.queue.length;
+      this.jobsDone = 0;
+    }
+
+    // Werk de wachtrij af. Zonder pool: tot het tijdsbudget (ms) op is.
     // Geeft true terug als er net een generatie is afgerond.
-    evaluateSome(budgetMs) {
+    pump(budgetMs) {
       const t0 = now();
-      while (now() - t0 < budgetMs) {
-        if (this.idx >= this.population.length) { this._endGeneration(); return true; }
-        const ind = this.population[this.idx];
-        if (!this.cur) {
-          this.cur = new G.Episode(ind.genome, this.track, this.cfg, this.trials[this.trialRuns.length]);
+      for (;;) {
+        if (this.pool) {
+          // alles in één keer aan de pool geven; die verdeelt over de workers
+          while (this.queue.length) this._dispatch(this.queue.shift());
+        } else if (this.queue.length) {
+          if (now() - t0 >= budgetMs) return false;
+          const job = this.queue.shift();
+          this._finish(job, this._runLocal(job));
+          continue;
         }
-        if (this.cur.run(240)) {
-          this.trialRuns.push(this.cur.summary());
-          this.cur = null;
-          if (this.trialRuns.length >= this.trials.length) {
-            ind.stats = G.mergeSummaries(this.trialRuns);
-            ind.fitness = G.computeFitness(ind.stats, this.cfg);
-            this.trialRuns = [];
-            this.idx++;
-            this.evaluations++;
-          }
-        }
+        if (this.queue.length || this.inflight) return false;
+        if (this.phase === 'eval') this._startValidation();
+        else { this._finalize(); return true; }
       }
-      return false;
     }
 
-    runGeneration() { while (!this.evaluateSome(1e9)); }
+    // Oude naam (gebruikt door oudere scripts)
+    evaluateSome(budgetMs) { return this.pump(budgetMs); }
 
-    get progress() { return this.idx / this.population.length; }
+    runGeneration() {
+      if (this.pool) throw new Error('Met een pool: gebruik runGenerationAsync()');
+      while (!this.pump(1e9));
+    }
+
+    async runGenerationAsync() {
+      while (!this.pump(50)) await new Promise(r => setTimeout(r, 1));
+    }
+
+    get progress() { return this.jobsTotal ? this.jobsDone / this.jobsTotal : 0; }
+
+    _runLocal(job) {
+      const ep = new G.Episode(job.genome, this.track, this.cfg, job.variant);
+      while (!ep.run(100000));
+      return ep.summary();
+    }
+
+    _dispatch(job) {
+      const epoch = this.epoch;
+      this.inflight++;
+      this.pool.run({ genome: job.genome, variant: job.variant, level: this.level }, summary => {
+        if (epoch !== this.epoch) return; // verouderd (nieuw level, reset…)
+        this.inflight--;
+        this._finish(job, summary);
+      });
+    }
+
+    _finish(job, summary) {
+      if (job.kind === 'eval') {
+        const ind = this.population[job.i];
+        ind.runs[job.k] = summary;
+        this.jobsDone++;
+        if (ind.runs.every(r => r)) {
+          ind.stats = G.mergeSummaries(ind.runs);
+          ind.fitness = G.computeFitness(ind.stats, this.cfg);
+          this.evaluations++;
+        }
+      } else {
+        this.valRuns[job.c][job.k] = summary;
+      }
+    }
+
+    // De beste kandidaten nog eens testen op 8 vaste starts
+    _startValidation() {
+      this.phase = 'validate';
+      this.population.sort((a, b) => b.fitness - a.fitness);
+      this.valCands = this.population.slice(0, Math.max(1, this.cfg.evo.validateTop | 0));
+      this.valRuns = this.valCands.map(() => new Array(G.VALIDATION.length).fill(null));
+      this.valCands.forEach((cand, c) => G.VALIDATION.forEach((variant, k) =>
+        this.queue.push({ kind: 'val', c, k, genome: cand.genome, variant })));
+    }
 
     // Volledige test van één genoom op vaste starts (standaard: VALIDATION)
     evaluate(genome, variants = G.VALIDATION) {
-      const runs = variants.map(v => {
-        const ep = new G.Episode(genome, this.track, this.cfg, v);
-        while (!ep.run(10000));
-        return ep.summary();
-      });
+      const runs = variants.map(variant => this._runLocal({ genome, variant }));
       const stats = G.mergeSummaries(runs);
       return { stats, fitness: G.computeFitness(stats, this.cfg) };
     }
@@ -102,25 +181,24 @@
 
     _speciesKey(g) { return g.nodes.length; }
 
-    _endGeneration() {
-      const pop = this.population;
-      pop.sort((a, b) => b.fitness - a.fitness);
+    _finalize() {
+      const pop = this.population; // al gesorteerd in _startValidation
       const best = pop[0];
       const avg = pop.reduce((s, p) => s + p.fitness, 0) / pop.length;
       const species = new Set(pop.map(p => this._speciesKey(p.genome))).size;
 
-      // Kandidaat-kampioenen eerlijk valideren
-      for (const cand of pop.slice(0, Math.max(1, this.cfg.evo.validateTop | 0))) {
-        const v = this.evaluate(cand.genome);
+      this.valCands.forEach((cand, c) => {
+        const stats = G.mergeSummaries(this.valRuns[c]);
+        const fitness = G.computeFitness(stats, this.cfg);
         this.evaluations++;
-        if (!this.champion || v.fitness > this.champion.fitness) {
+        if (!this.champion || fitness > this.champion.fitness) {
           this.champion = {
-            genome: G.Genome.clone(cand.genome), fitness: v.fitness,
-            stats: v.stats, generation: this.generation, level: this.level
+            genome: G.Genome.clone(cand.genome), fitness, stats,
+            generation: this.generation, level: this.level
           };
           this.championVersion++;
         }
-      }
+      });
 
       this.history.push({
         gen: this.generation, best: best.fitness, avg, champ: this.champion.fitness,
@@ -131,13 +209,14 @@
 
       this.population = this._breed(pop);
       this.generation++;
-      this.idx = 0;
       this._newTrials();
 
       // Curriculum: beheerst de kampioen dit level? Dan wordt het moeilijker.
       const E = this.cfg.evo;
       if (E.curriculum && this.level < 1 && this.champion.stats.gapRate >= E.levelPass) {
         this.setLevel(Math.min(1, Math.round((this.level + E.levelStep) * 100) / 100));
+      } else {
+        this._startGeneration();
       }
     }
 
@@ -189,31 +268,28 @@
 
     // Nieuw level → nieuwe baan; de kampioen moet zich opnieuw bewijzen
     setLevel(level) {
-      if (level === this.level) return;
-      this.level = level;
-      this.track = G.buildParkour(this.cfg, level);
-      this.cur = null;
-      this.trialRuns = [];
-      this.idx = 0;
-      for (const ind of this.population) { ind.stats = null; ind.fitness = null; }
-      if (this.champion) {
-        const v = this.evaluate(this.champion.genome);
-        this.champion.fitness = v.fitness;
-        this.champion.stats = v.stats;
-        this.champion.level = level;
-        this.championVersion++;
+      if (level !== this.level) {
+        this.level = level;
+        this.track = G.buildParkour(this.cfg, level);
+        if (this.champion) {
+          const v = this.evaluate(this.champion.genome);
+          this.champion.fitness = v.fitness;
+          this.champion.stats = v.stats;
+          this.champion.level = level;
+          this.championVersion++;
+        }
       }
+      this._startGeneration();
     }
 
     // Zet een geladen genoom in de populatie (vervangt de laatste)
     inject(genome) {
       G.Genome.registerLoaded(genome);
       const pop = this.population;
-      const slot = pop.length - 1;
-      if (slot === this.idx) { this.cur = null; this.trialRuns = []; }
-      pop[slot] = { genome: G.Genome.clone(genome), fitness: null, stats: null };
+      pop[pop.length - 1] = { genome: G.Genome.clone(genome), fitness: null, stats: null };
+      this._startGeneration();
     }
   }
 
   G.Evolution = Evolution;
-})((globalThis.GROW = globalThis.GROW || {}));
+});

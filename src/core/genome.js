@@ -25,7 +25,7 @@
 //  Omdat élk stokje zijn eigen kleine brein heeft, maakt het niet
 //  uit hoeveel stokjes er groeien: het brein groeit gewoon mee.
 //  (Dit is een "modulaire controller" — familie van Graph Neural Nets.)
-(function (G) {
+GROW_MODULE(function (G) {
   'use strict';
   const clamp = G.clamp;
   const NIN = 10;
@@ -53,7 +53,14 @@
       g.f = rng.range(0.6, 2.0);
       const k = 1 + rng.int(4);
       for (let i = 0; i < k; i++) Genome.addNode(g, rng, cfg);
+      Genome.ensureMinNodes(g, rng, cfg);
       return g;
+    },
+
+    // Groei bij tot het minimum aantal bollen (instelling body.minNodes)
+    ensureMinNodes(g, rng, cfg) {
+      const min = Math.min(cfg.body.minNodes || 1, cfg.body.maxNodes);
+      for (let tries = 0; g.nodes.length < min && tries < 40; tries++) Genome.addNode(g, rng, cfg);
     },
 
     clone(g) { return JSON.parse(JSON.stringify(g)); },
@@ -165,7 +172,8 @@
     },
 
     // Verwijder een "blad"-bol (een bol waar niets uit gegroeid is)
-    removeNode(g, rng) {
+    removeNode(g, rng, cfg) {
+      if (cfg && g.nodes.length <= (cfg.body.minNodes || 1)) return false; // niet kleiner dan het minimum
       const leaves = [];
       for (let i = 1; i < g.nodes.length; i++) {
         if (!g.nodes.some(n => n.p === i)) leaves.push(i);
@@ -189,16 +197,21 @@
       g.parent = parent.id;
       const M = cfg.evo.mut, B = cfg.body;
 
+      // lockBody = zelfgebouwd lichaam: alleen het brein mag veranderen
+      const lock = !!cfg.evo.lockBody;
+
       // brein bijsturen
       for (const s of g.sticks) {
         for (let k = 0; k < NIN; k++) {
           if (rng.chance(M.weightReset)) s.w[k] = rng.gauss();
           else if (rng.chance(M.weightRate)) s.w[k] += rng.gauss() * M.weightSigma;
         }
+        if (lock) continue;
         if (rng.chance(M.toggleMuscle)) s.m = !s.m;
         if (rng.chance(M.strengthRate)) s.k = clamp((s.k === undefined ? 1 : s.k) + rng.gauss() * 0.2 + 0.05, 0, 1);
       }
       if (rng.chance(M.freqRate)) g.f = clamp(g.f + rng.gauss() * M.freqSigma, 0.3, 3.0);
+      if (lock) return g;
 
       // vorm bijsturen
       for (let i = 1; i < g.nodes.length; i++) {
@@ -218,8 +231,60 @@
       if (rng.chance(M.addNode)) Genome.addNode(g, rng, cfg, true);
       if (rng.chance(M.addStick)) Genome.addStick(g, rng, cfg, true);
       if (rng.chance(M.removeStick)) Genome.removeStick(g, rng);
-      if (rng.chance(M.removeNode)) Genome.removeNode(g, rng);
+      if (rng.chance(M.removeNode)) Genome.removeNode(g, rng, cfg);
+      Genome.ensureMinNodes(g, rng, cfg);
       return g;
+    },
+
+    // Zelfde lichaam, nieuw (willekeurig) brein
+    rebrain(g, rng) {
+      const c = Genome.clone(g);
+      c.id = nextId++;
+      c.f = rng.range(0.6, 2.0);
+      for (const s of c.sticks) s.w = Genome.randomWeights(rng);
+      return c;
+    },
+
+    // ---------------- Bouw-modus ----------------
+    // design = { nodes: [{x,y,z,r}], sticks: [{a,b,m}] } met wereld-posities
+    // (bol 0 = hoofdbol). Wordt omgezet naar een groeiprogramma: elke bol
+    // groeit uit een "ouder" die via stokjes dichter bij de hoofdbol zit.
+    fromDesign(design, rng) {
+      const N = design.nodes.length;
+      const adj = design.nodes.map(() => []);
+      for (const s of design.sticks) { adj[s.a].push(s.b); adj[s.b].push(s.a); }
+      // breadth-first vanaf de hoofdbol → volgorde + ouders
+      const order = [0], parent = new Array(N).fill(-1), seen = new Array(N).fill(false);
+      seen[0] = true;
+      for (let q = 0; q < order.length; q++) {
+        for (const j of adj[order[q]]) if (!seen[j]) { seen[j] = true; parent[j] = order[q]; order.push(j); }
+      }
+      if (order.length !== N) return null; // niet alles is verbonden
+      const newIdx = new Array(N);
+      order.forEach((old, i) => { newIdx[old] = i; });
+      const P = design.nodes;
+      const g = { id: nextId++, parent: 0, f: 1.2, nodes: [], sticks: [] };
+      for (const old of order) {
+        const n = P[old];
+        if (parent[old] < 0) { g.nodes.push({ p: -1, d: [0, 0, 0], l: 0, r: n.r }); continue; }
+        const q = P[parent[old]];
+        const dx = n.x - q.x, dy = n.y - q.y, dz = n.z - q.z;
+        const l = G.M.len3(dx, dy, dz) || 1e-6;
+        g.nodes.push({ p: newIdx[parent[old]], d: [dx / l, dy / l, dz / l], l, r: n.r });
+      }
+      for (const s of design.sticks) {
+        g.sticks.push({ a: newIdx[s.a], b: newIdx[s.b], m: !!s.m, k: 1, w: Genome.randomWeights(rng) });
+      }
+      return g;
+    },
+
+    // Omgekeerd: genoom → bewerkbaar ontwerp (posities uit de bouwtekening)
+    toDesign(g, origin) {
+      const bp = Genome.blueprint(g);
+      return {
+        nodes: g.nodes.map((n, i) => ({ x: origin[0] + bp[i][0], y: origin[1] + bp[i][1], z: origin[2] + bp[i][2], r: n.r })),
+        sticks: g.sticks.map(s => ({ a: s.a, b: s.b, m: s.m }))
+      };
     },
 
     describe(g) {
@@ -247,4 +312,4 @@
   };
 
   G.Genome = Genome;
-})((globalThis.GROW = globalThis.GROW || {}));
+});

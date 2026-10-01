@@ -190,6 +190,104 @@
       this.camera.position.set(x - 3, 3.5, 7);
     }
 
+    // =========================================================
+    //  BOUW-MODUS
+    // =========================================================
+    setEditMode(on) {
+      this.editing = on;
+      this.creature.visible = !on;
+      if (!this.editGroup) {
+        this.editGroup = new T.Group();
+        this.scene.add(this.editGroup);
+        // spook-bol + spook-stokje: laten zien waar een nieuwe bol komt
+        const ghostMat = new T.MeshStandardMaterial({ color: 0x5ad1c8, transparent: true, opacity: 0.4 });
+        this.ghost = new T.Mesh(this.sphereGeo, ghostMat);
+        this.ghostStick = new T.Mesh(this.cylGeo, new T.MeshBasicMaterial({ color: 0xffffff, transparent: true, opacity: 0.35 }));
+        this.scene.add(this.ghost, this.ghostStick);
+        this._ray = new T.Raycaster();
+      }
+      this.editGroup.visible = on;
+      this.ghost.visible = this.ghostStick.visible = false;
+      if (on) {
+        this.follow = false;
+        this.controls.target.set(0, 0.6, 0);
+        this.camera.position.set(-1.5, 2.4, 4.5);
+      }
+    }
+
+    // Teken het ontwerp opnieuw (wordt na elke wijziging aangeroepen)
+    showDesign(design, selected) {
+      for (const m of this.editGroup.children.slice()) {
+        this.editGroup.remove(m);
+        m.material.dispose();
+      }
+      design.nodes.forEach((n, i) => {
+        const isRoot = i === 0, isSel = i === selected;
+        const color = isRoot ? COLORS.root : COLORS.node;
+        const mat = new T.MeshStandardMaterial({
+          color, roughness: 0.35, emissive: isSel ? 0xffffff : color, emissiveIntensity: isSel ? 0.45 : 0.1
+        });
+        const m = new T.Mesh(this.sphereGeo, mat);
+        m.position.set(n.x, n.y, n.z);
+        m.scale.setScalar(n.r);
+        m.castShadow = true;
+        m.userData = { type: 'node', index: i };
+        this.editGroup.add(m);
+      });
+      design.sticks.forEach((s, k) => {
+        const a = design.nodes[s.a], b = design.nodes[s.b];
+        const mat = new T.MeshStandardMaterial({ color: s.m ? 0xef4444 : COLORS.bone, roughness: 0.5 });
+        const m = new T.Mesh(this.cylGeo, mat);
+        this._placeStick(m, a, b, s.m ? 0.05 : 0.04);
+        m.castShadow = true;
+        m.userData = { type: 'stick', index: k };
+        this.editGroup.add(m);
+      });
+    }
+
+    _placeStick(m, a, b, thick) {
+      const A = this._tmpA.set(a.x, a.y, a.z), B = this._tmpB.set(b.x, b.y, b.z);
+      const len = A.distanceTo(B) || 1e-6;
+      m.position.copy(A).add(B).multiplyScalar(0.5);
+      B.sub(A).divideScalar(len);
+      m.quaternion.setFromUnitVectors(this._up, B);
+      m.scale.set(thick, len, thick);
+    }
+
+    _setRay(clientX, clientY) {
+      const r = this.renderer.domElement.getBoundingClientRect();
+      const ndc = new T.Vector2(((clientX - r.left) / r.width) * 2 - 1, -((clientY - r.top) / r.height) * 2 + 1);
+      this._ray.setFromCamera(ndc, this.camera);
+    }
+
+    // Wat zit er onder de muis? {type:'node'|'stick', index} of null
+    pick(clientX, clientY) {
+      this._setRay(clientX, clientY);
+      const hits = this._ray.intersectObjects(this.editGroup.children, false);
+      if (!hits.length) return null;
+      // bollen gaan voor stokjes (een stokje zit vaak "in" een bol)
+      const node = hits.find(h => h.object.userData.type === 'node');
+      return (node || hits[0]).object.userData;
+    }
+
+    // Punt onder de muis op een vlak door p, recht naar de camera gericht
+    planePoint(clientX, clientY, p) {
+      this._setRay(clientX, clientY);
+      const normal = new T.Vector3();
+      this.camera.getWorldDirection(normal);
+      const plane = new T.Plane().setFromNormalAndCoplanarPoint(normal, new T.Vector3(p.x, p.y, p.z));
+      const out = new T.Vector3();
+      return this._ray.ray.intersectPlane(plane, out) ? { x: out.x, y: out.y, z: out.z } : null;
+    }
+
+    showGhost(from, to, r) {
+      if (!to) { this.ghost.visible = this.ghostStick.visible = false; return; }
+      this.ghost.visible = this.ghostStick.visible = true;
+      this.ghost.position.set(to.x, to.y, to.z);
+      this.ghost.scale.setScalar(r);
+      this._placeStick(this.ghostStick, from, to, 0.03);
+    }
+
     render() {
       this.controls.update();
       this.renderer.render(this.scene, this.camera);

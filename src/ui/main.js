@@ -3,8 +3,8 @@
 // =============================================================
 //
 //  Elke frame (≈60× per seconde):
-//    1. Training: evalueer zoveel organismen als in ~10 ms past
-//       (zonder graphics, dus heel snel)
+//    1. Training: verdeel taken over de Web Workers (alle CPU-kernen),
+//       of — als dat niet kan — reken ~10 ms op de hoofd-thread
 //    2. Replay: laat de huidige kampioen in real-time zien
 //    3. Teken de 3D-scène en werk de cijfers bij
 (function (G) {
@@ -13,9 +13,23 @@
   const $ = id => document.getElementById(id);
   const STORAGE_KEY = 'growbot.champion.v1';
 
-  let evo = new G.Evolution(cfg, (Math.random() * 1e9) | 0);
+  // Rekenen op alle CPU-kernen (één kern blijft over voor het tekenen)
+  const cores = navigator.hardwareConcurrency || 2;
+  const pool = G.WorkerPool.create(Math.max(1, Math.min(12, cores - 1)));
+  if (pool) {
+    $('lblTurbo').hidden = true; // niet nodig: de workers rekenen al op volle snelheid
+    $('kEps').textContent = `Evaluations/s (${pool.size} CPU core${pool.size > 1 ? 's' : ''})`;
+  }
+
+  let evo = newEvolution();
   const view = new G.SceneView($('viewport'));
   view.buildTrack(evo.track);
+
+  function newEvolution(opts) {
+    const e = new G.Evolution(cfg, (Math.random() * 1e9) | 0, opts);
+    if (pool) e.setPool(pool);
+    return e;
+  }
 
   let training = false;
   let turbo = false;
@@ -57,6 +71,7 @@
     { label: 'Energy cost', obj: cfg.fitness, key: 'energyCost', min: 0, max: 0.05, step: 0.001, rescore: true },
     { label: 'Checkpoint bonus', obj: cfg.fitness, key: 'checkpointBonus', min: 0, max: 10, step: 0.5, rescore: true },
     { label: 'Grow-sphere mutation rate', obj: cfg.evo.mut, key: 'addNode', min: 0, max: 0.4, step: 0.01 },
+    { label: 'Min spheres (bigger = less boring)', obj: cfg.body, key: 'minNodes', min: 1, max: 12, step: 1 },
     { label: 'Max spheres (hard cap)', obj: cfg.body, key: 'maxNodes', min: 2, max: 24, step: 1 },
     { label: 'Population size', obj: cfg.evo, key: 'popSize', min: 10, max: 200, step: 5 }
   ];
@@ -95,7 +110,8 @@
   $('btnReplay').onclick = () => replayGenome && startReplay(replayGenome);
 
   $('btnReset').onclick = () => {
-    evo = new G.Evolution(cfg, (Math.random() * 1e9) | 0);
+    cfg.evo.lockBody = 0; // weer gewone evolutie (ook het lichaam)
+    evo = newEvolution();
     replayVersion = -1;
     lastLevel = evo.level;
     startReplay(G.Genome.root(cfg));
@@ -175,6 +191,63 @@
     toastTimer = setTimeout(() => el.classList.remove('show'), 2600);
   }
 
+  // ---------------- bouw-modus ----------------
+  const editor = new G.Editor(view, cfg, {
+    toast,
+    onChange: info => {
+      $('bInfo').textContent = info.text;
+      $('bProblem').textContent = info.problem;
+      $('btnTrainDesign').disabled = !!info.problem;
+    }
+  });
+  let wasTraining = false;
+  function setBuildMode(on) {
+    $('buildPanel').hidden = !on;
+    $('mainPanel').hidden = on;
+    $('hud').hidden = on;
+    if (on) {
+      wasTraining = training;
+      setTraining(false);
+      editor.open();
+    } else {
+      editor.close();
+      view.follow = $('chkFollow').checked;
+      setTraining(wasTraining);
+    }
+  }
+  $('btnBuild').onclick = () => setBuildMode(true);
+  $('btnCancelBuild').onclick = () => setBuildMode(false);
+  $('btnPreset').onclick = () => {
+    const name = $('selPreset').value;
+    if (name === 'current') {
+      const d = G.Genome.toDesign(replayGenome, [0, cfg.body.rootRadius + 0.01, 0]);
+      const lift = Math.max(0, -Math.min(...d.nodes.map(n => n.y - n.r))); // niets onder de grond
+      for (const n of d.nodes) n.y += lift;
+      editor.open(d);
+    } else editor.loadPreset(name);
+  };
+  $('btnBigger').onclick = () => editor.resizeSelected(0.02);
+  $('btnSmaller').onclick = () => editor.resizeSelected(-0.02);
+  $('btnDelete').onclick = () => editor.deleteSelected();
+  $('btnLink').onclick = () => {
+    editor.linkMode = !editor.linkMode;
+    $('btnLink').classList.toggle('on', editor.linkMode);
+  };
+  $('btnTrainDesign').onclick = () => {
+    const res = editor.toGenome(new G.RNG((Math.random() * 1e9) | 0));
+    if (res.error) return toast(res.error);
+    const evolveBody = $('chkEvolveBody').checked;
+    cfg.evo.lockBody = evolveBody ? 0 : 1;
+    evo = newEvolution({ seedGenome: res.genome });
+    replayVersion = -1;
+    lastLevel = evo.level;
+    wasTraining = true;
+    setBuildMode(false);
+    startReplay(G.Genome.clone(res.genome));
+    drawChart();
+    toast(evolveBody ? 'Training your creature (body may evolve too)' : 'Training a brain for your creature');
+  };
+
   // ---------------- UI bijwerken ----------------
   const REASONS = { 'gevallen': 'fell into a gap', 'finish!': '🏁 finished!', 'vastgelopen': 'stuck',
     'tijd op': 'time is up', 'instabiel': 'unstable' };
@@ -195,7 +268,7 @@
     if (now - evalCounter.t > 1000) {
       evalCounter.rate = ((evo.evaluations - evalCounter.n) * 1000) / (now - evalCounter.t);
       evalCounter = { t: now, n: evo.evaluations, rate: evalCounter.rate };
-      $('sEps').textContent = training ? evalCounter.rate.toFixed(0) : '0';
+      $('sEps').textContent = training ? Math.max(0, evalCounter.rate).toFixed(0) : '0';
     }
     const c = evo.champion;
     if (c) {
@@ -237,7 +310,7 @@
     last = now;
 
     // 1. training
-    if (training && evo.evaluateSome(turbo ? 40 : 10)) {
+    if (training && !editor.active && evo.pump(pool ? 2 : turbo ? 40 : 10)) {
       drawChart();
       if (evo.championVersion !== replayVersion) {
         replayVersion = evo.championVersion;

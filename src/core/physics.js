@@ -20,7 +20,7 @@
 //    │      b. bollen uit muren duwen     │
 //    │ 3. wrijving (Coulomb) bij contact  │
 //    └────────────────────────────────────┘
-(function (G) {
+GROW_MODULE(function (G) {
   'use strict';
   const clamp = G.clamp;
 
@@ -186,4 +186,4 @@
 
   G.Collider = Collider;
   G.World = World;
-})((globalThis.GROW = globalThis.GROW || {}));
+});

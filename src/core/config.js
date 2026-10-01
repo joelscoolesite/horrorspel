@@ -3,7 +3,14 @@
 // =============================================================
 // Tip: begin met experimenteren HIER. Kleine wijzigingen hebben
 // vaak grote gevolgen voor wat de evolutie "uitvindt".
-(function (G) {
+// Elke core-file meldt zich aan via GROW_MODULE. Zo bewaren we de broncode
+// en kunnen Web Workers precies dezelfde simulatie draaien (src/ui/workers.js).
+globalThis.GROW_MODULE = globalThis.GROW_MODULE || function (mod) {
+  (globalThis.GROW_SRC = globalThis.GROW_SRC || []).push(mod.toString());
+  mod(globalThis.GROW = globalThis.GROW || {});
+};
+
+GROW_MODULE(function (G) {
   'use strict';
 
   G.CONFIG = {
@@ -24,6 +31,7 @@
       minStick: 0.25,       // kortste stokje (m)
       maxStick: 1.5,        // langste stokje (m)
       growLenMax: 1.4,      // een nieuw gegroeide bol komt max. zo ver van zijn ouder (lang = makkelijker over de spleet)
+      minNodes: 4,          // minimaal aantal bollen (incl. hoofdbol) → geen saaie 2-stokjes-wezens
       maxNodes: 14,         // HARDE limiet (incl. hoofdbol) → geen explosie
       maxSticks: 34,        // HARDE limiet
       muscleAmp: 0.35,      // spier kan ±35% korter/langer worden (= gewrichtslimiet)
@@ -68,7 +76,9 @@
       speciesElite: 6,      // beste van max N soorten ook beschermen
       tournament: 4,
       trials: 3,            // elk organisme 3× testen met (elke generatie) andere starts
+      nominalTrial: 0,      // 1 = de standaard-start zit altijd in de test (0 = alleen willekeurige: robuuster)
       validateTop: 2,       // beste 2 van elke generatie extra testen op 8 vaste starts
+      lockBody: 0,          // 1 = lichaam ligt vast (zelf gebouwd), alleen het brein evolueert
       curriculum: 1,        // 1 = begin makkelijk (geen gat, vlak) en maak het steeds moeilijker
       levelStep: 0.1,       // zoveel moeilijker per keer
       levelPass: 0.5,       // ...zodra de kampioen in ≥50% van zijn testruns over de spleet komt
@@ -88,4 +98,4 @@
   };
 
   G.clamp = (v, a, b) => (v < a ? a : v > b ? b : v);
-})((globalThis.GROW = globalThis.GROW || {}));
+});

@@ -54,6 +54,12 @@
   .slider input { grid-column: span 2; width: 100%; accent-color: var(--accent); }
   .check { display: flex; align-items: center; gap: 6px; color: var(--muted); }
   .hint { color: var(--muted); font-size: 11px; margin-top: 6px; }
+  .hint.warn { color: var(--bad); font-size: 12px; min-height: 1em; }
+  .howto { margin: 0 0 4px; padding-left: 18px; color: var(--muted); font-size: 12px; }
+  .howto li { margin: 3px 0; }
+  .howto b { color: var(--text); font-weight: 600; }
+  button.on { border-color: var(--accent); color: var(--accent); }
+  [hidden] { display: none !important; }
 
   #hud { position: fixed; top: 12px; right: 12px; background: var(--panel); border: 1px solid var(--line);
     border-radius: 10px; padding: 8px 12px; font-variant-numeric: tabular-nums; min-width: 190px; }
@@ -75,6 +81,45 @@
 <div id="viewport"></div>
 
 <aside id="panel">
+ <div id="buildPanel" hidden>
+  <h1>Build <span>your own</span></h1>
+  <div class="sub">Design a creature, then let the AI learn how to move it.</div>
+  <ul class="howto">
+    <li><b>Click empty space</b>: new sphere on the selected one</li>
+    <li><b>Click a sphere</b>: select it · <b>drag</b> it to move</li>
+    <li><b>Shift + click</b> a sphere: add/remove a stick</li>
+    <li><b>Click a stick</b>: muscle <span style="color:#ef4444">■</span> ↔ bone <span style="color:#e8e4da">■</span></li>
+    <li><b>Delete</b>: remove the selected sphere</li>
+  </ul>
+  <h2>Start from</h2>
+  <div class="row">
+    <select id="selPreset" class="grow">
+      <option value="blank">Just the main sphere</option>
+      <option value="spider">Spider (4 legs)</option>
+      <option value="jumper">Jumper</option>
+      <option value="snake">Snake</option>
+      <option value="wheel">Wheel</option>
+      <option value="current">The creature on screen</option>
+    </select>
+    <button id="btnPreset">Load</button>
+  </div>
+  <h2>Selected sphere</h2>
+  <div class="row">
+    <button id="btnBigger">＋ Bigger</button>
+    <button id="btnSmaller">－ Smaller</button>
+    <button id="btnDelete">🗑 Delete</button>
+    <button id="btnLink" title="Same as holding Shift: click spheres to connect them">🔗 Link mode</button>
+  </div>
+  <div class="stat wide" style="margin-top:10px"><div class="k">Your creature</div><div class="v small" id="bInfo">–</div></div>
+  <div class="hint warn" id="bProblem"></div>
+  <label class="check" style="margin-top:10px"><input type="checkbox" id="chkEvolveBody"> Let evolution change my body too</label>
+  <div class="row" style="margin-top:10px">
+    <button id="btnTrainDesign" class="primary grow">▶ Train this body</button>
+    <button id="btnCancelBuild">Cancel</button>
+  </div>
+ </div>
+
+ <div id="mainPanel">
   <h1>GrowBot <span>Parkour Lab</span></h1>
   <div class="sub">One sphere grows bones &amp; muscles and evolves to beat the course.</div>
 
@@ -83,7 +128,10 @@
     <button id="btnReset" title="New random population">Reset</button>
   </div>
   <div class="row" style="margin-top:6px">
-    <label class="check"><input type="checkbox" id="chkTurbo"> Turbo (faster training, choppier view)</label>
+    <button id="btnBuild" class="grow">✏ Build your own creature</button>
+  </div>
+  <div class="row" style="margin-top:6px">
+    <label class="check" id="lblTurbo"><input type="checkbox" id="chkTurbo"> Turbo (faster training, choppier view)</label>
     <label class="check" title="Start with a flat course without a gap and make it harder each time the champion masters it"><input type="checkbox" id="chkCurriculum" checked> Curriculum (start easy, course gets harder)</label>
   </div>
   <div class="bar"><div id="evalBar"></div></div>
@@ -91,7 +139,7 @@
   <h2>Evolution</h2>
   <div class="stats">
     <div class="stat"><div class="k">Generation</div><div class="v" id="sGen">0</div></div>
-    <div class="stat"><div class="k">Evaluations/s</div><div class="v" id="sEps">0</div></div>
+    <div class="stat"><div class="k" id="kEps">Evaluations/s</div><div class="v" id="sEps">0</div></div>
     <div class="stat"><div class="k">Champion fitness</div><div class="v" id="sFit">–</div></div>
     <div class="stat"><div class="k">Avg distance (8 runs)</div><div class="v" id="sDist">–</div></div>
     <div class="stat wide"><div class="k">Champion body</div><div class="v small" id="sBody">–</div></div>
@@ -110,6 +158,7 @@
     <select id="selSpeed" title="Replay speed">
       <option value="0.25">0.25×</option><option value="0.5">0.5×</option>
       <option value="1" selected>1×</option><option value="2">2×</option><option value="4">4×</option>
+      <option value="10">10×</option><option value="20">20×</option>
     </select>
     <button id="btnReplay">↻ Restart replay</button>
     <label class="check"><input type="checkbox" id="chkFollow" checked> Follow</label>
@@ -129,6 +178,7 @@
     <button id="btnRestore">Restore last session</button>
   </div>
   <div class="hint">Train faster in a terminal: <code>node tools/train.js --gens 300</code>, then load <code>champions/champion.json</code>.</div>
+ </div>
 </aside>
 
 <div id="hud">
@@ -155,6 +205,8 @@
 <script src="champions/example.js"></script>
 <!-- Weergave + bediening -->
 <script src="src/ui/render.js"></script>
+<script src="src/ui/workers.js"></script>
+<script src="src/ui/editor.js"></script>
 <script src="src/ui/chart.js"></script>
 <script src="src/ui/main.js"></script>
 </body>

@@ -163,9 +163,8 @@ fitness =   1.0 × afstand            (verste x van de hoofdbol, in meter)
           − 0.004 × spier-energie    ┘ (∑ |activatie| · dt)
 ```
 
-Elk organisme wordt **3× getest**: de standaardstart plus 2 willekeurige
-starts (positie, draaiing ±20°, ritme). Die worden **elke generatie
-opnieuw** geloot. De score is het gemiddelde (*domain randomization*).
+Elk organisme wordt **3× getest** vanaf willekeurige starts (positie,
+draaiing ±20°, ritme). Die worden **elke generatie opnieuw** geloot. De score is het gemiddelde (*domain randomization*).
 De beste 2 van elke generatie worden daarna nog eens getest op **8 vaste
 starts**. Alleen die score telt voor de kampioen.
 
@@ -219,6 +218,9 @@ echt probleem, gemeten met `tools/train.js`.
 | **Chaos** | Een gewichtsmutatie van σ = 0.02 halveerde al de score | **Vloeiende sensoren** (afstand tot de grond i.p.v. contact aan/uit; deel van 3 kijkpunten boven een gat) → populatiegemiddelde ±2× hoger |
 | **Browser ≠ Node** | `Math.sin`/`tanh` verschillen per JS-engine in de laatste bit → na 2 s een andere run | Eigen `sin`/`cos`/`tanh` met alleen + − × ÷ √ (`dmath.js`) → overal bit-identiek |
 | **Spleet = muur** | 2 van de 3 seeds kwamen nooit over de spleet: iedereen loopt tot de rand en stopt | Langere groeistapjes (`growLenMax` 1.0 → 1.4 m), zodat lange "brug-lichamen" kunnen ontstaan, + curriculum |
+| **Standaardstart uit het hoofd leren** | Zat de standaardstart in élke generatie in de test, dan scoorde "de beste" 25–34 maar haalde hij op de validatie maar 8–15 | Alleen willekeurige starts (`nominalTrial: 0`) → robuuste score op 30 nieuwe starts gemiddeld 14.5 i.p.v. 9.5 (2 testruns) |
+| **Saaie wezens** | Met lage groeikosten wonnen vaak 2–3 bollen met 1–2 stokjes | `minNodes: 4` (schuifregelaar *Min spheres*). Grotere lichamen leren iets trager, maar wel |
+| **Workers wachtten** | Browser-workers kregen maar 1 taak per beeldframe → 70% stilstand | De pool geeft meteen de volgende taak door zodra een worker klaar is |
 | **Overfitting op de test** | Kampioen scoort 45 op zijn 8 vaste starts, maar ~25 op 30 nieuwe | Bekend effect (*winner's curse*). De getoonde score is optimistisch. Beter: grotere/wisselende validatieset |
 
 > **Regel**: evolutie is een expert in het vinden van bugs. Gebeurt er
@@ -246,10 +248,13 @@ echt probleem, gemeten met `tools/train.js`.
    ├── src/ui/            ← WEERGAVE
    │     render.js        Three.js-scène
    │     chart.js         fitnessgrafiek
+   │     editor.js        bouw-modus (zelf een wezen ontwerpen)
+   │     workers.js       training op alle CPU-kernen (Web Workers)
    │     main.js          knoppen, lus: trainen + replay
    │
    └── tools/
-         train.js         headless trainen in de terminal (veel sneller)
+         train.js         headless trainen in de terminal (alle kernen)
+         pool-node.js     worker_threads-versie van workers.js
          make-example.js  kampioen → champions/example.js
 ```
 
@@ -293,6 +298,32 @@ volle lengte. Daarna gaan de spieren aan.
             × sterkte-gen (0..1) bepaalt hoe hard het stokje trekt
 ```
 
+### Parallel rekenen (alle CPU-kernen)
+
+```
+ hoofd-thread: wachtrij met taken (DNA × start)    workers
+ ┌───────────────────────────────┐   taak   ┌──────────┐
+ │ eval: 60 DNA's × 3 starts     │ ───────▶ │ worker 1 │ ─┐
+ │ validatie: 2 beste × 8 starts │ ───────▶ │ worker 2 │  │ samenvatting
+ │ resultaat → vaste plek        │ ◀─────── │ worker … │ ◀┘
+ └───────────────────────────────┘          └──────────┘
+```
+
+Elke core-file bewaart zijn eigen broncode (`GROW_MODULE` in `config.js`).
+Daarvan wordt een *blob*-script gemaakt, zodat workers ook werken als je
+`index.html` gewoon dubbelklikt. Omdat elk resultaat op een vaste plek
+komt (DNA *i*, start *k*), is de uitkomst bit-voor-bit hetzelfde als op
+één kern. Dat is getest.
+
+### Bouw-modus
+
+Je ontwerp (bollen met posities + stokjes) wordt met `Genome.fromDesign`
+omgezet naar een groeiprogramma. Elke bol krijgt als "ouder" de bol die
+via stokjes het dichtst bij de hoofdbol zit (breadth-first search). Dus
+ook jouw wezen begint zijn leven als één bol en groeit uit. Met *lock
+body* (standaard) evolueert alleen het brein: 60 kopieën van jouw lichaam
+met elk een willekeurig brein.
+
 ### Physics in het kort (Position Based Dynamics)
 
 ```
@@ -322,7 +353,8 @@ Wat we zagen tijdens het testen:
 
 ### Verwachtingen (eerlijk)
 
-Gemeten met de standaardinstellingen (`node tools/train.js`, populatie 60).
+Gemeten met de instellingen van versie 2 (`node tools/train.js`, populatie 60,
+nog met `minNodes: 1` en de standaardstart in elke test).
 *Robuust* = gemiddelde over 30 starts die de evolutie nooit gezien heeft:
 
 | Run | Generaties | Kampioen (8 vaste starts) | Robuust (30 nieuwe starts) | Finish (robuust) | Lichaam |
