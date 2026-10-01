@@ -51,7 +51,8 @@ node tools/make-example.js champions\champion.json          (wordt de "Example c
 | **▶ Start training** | Evolutie draait op de achtergrond; de kampioen wordt live getoond |
 | **Turbo** | Alleen zichtbaar als je browser geen Web Workers kan gebruiken |
 | **Replay-snelheid** | 0.25× tot **20×** |
-| **🔊 + schuif** | Geluid aan/uit en volume (de browser onthoudt je keuze) |
+| **🔊 + schuif** | Geluidseffecten aan/uit en volume (de browser onthoudt je keuze) |
+| **🎵 + schuif** | Achtergrondmuziek aan/uit en volume |
 | **Min spheres** | Minimaal aantal bollen per wezen (standaard 4) → geen saaie 2-stokjes-wezens |
 | **Curriculum** | Begint met een vlakke baan zonder gat; wordt steeds 10% moeilijker zodra de kampioen het beheerst |
 | **Muis** | Slepen = draaien · scroll = zoomen · rechts slepen = verschuiven |
@@ -63,6 +64,10 @@ Geluid: tik/bonk als een bol de grond raakt (grote bol = lage toon), plopje
 als er een bol groeit, belletje per checkpoint, fanfare bij de finish, "woesj"
 als hij in het gat valt. Alles wordt live gemaakt met de Web Audio API
 (`src/ui/sound.js`), dus er zijn geen geluidsbestanden nodig.
+
+Muziek: een rustige loop in A-mineur die live gecomponeerd wordt
+(`src/ui/music.js`). Hij leeft mee: alleen pads en bas in de bouw-modus,
+arpeggio erbij als je kijkt, en drums erbij tijdens het trainen.
 
 Kleuren: 🟠 hoofdbol · 🔵 knooppunt · ⚪ bot · spier **blauw = samengetrokken**, **rood = uitgerekt**.
 
@@ -125,7 +130,8 @@ src/core/             simulatie + AI (werkt in browser én Node.js)
 src/ui/               3D-weergave (Three.js) + knoppen
   editor.js           bouw-modus
   workers.js          training op alle CPU-kernen (Web Workers)
-  sound.js            geluid (Web Audio, zelf gesynthetiseerd)
+  sound.js            geluidseffecten (Web Audio, zelf gesynthetiseerd)
+  music.js            achtergrondmuziek (sequencer, live gecomponeerd)
 tools/train.js        headless training (ook op alle kernen)
 docs/ONTWERP.md       volledig ontwerp + uitleg
 ```

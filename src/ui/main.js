@@ -22,6 +22,7 @@
   }
 
   const sound = new G.Sound();
+  const music = new G.Music(sound); // start bij de eerste klik (browserregel)
 
   let evo = newEvolution();
   const view = new G.SceneView($('viewport'));
@@ -100,7 +101,13 @@
     $('btnTrain').textContent = on ? '❚❚ Pause training' : '▶ Start training';
   }
   $('btnTrain').onclick = () => setTraining(!training);
-  const showSound = () => { $('btnSound').textContent = sound.enabled ? '🔊' : '🔇'; };
+  const showSound = () => {
+    $('btnSound').textContent = sound.enabled ? '🔊' : '🔇';
+    $('btnMusic').classList.toggle('off', !music.enabled);
+  };
+  $('btnMusic').onclick = () => { sound.unlock(); music.start(); music.setEnabled(!music.enabled); showSound(); };
+  $('slMusic').value = music.volume;
+  $('slMusic').oninput = e => { music.setVolume(+e.target.value); if (!music.enabled) { music.setEnabled(true); showSound(); } };
   $('btnSound').onclick = () => { sound.unlock(); sound.setEnabled(!sound.enabled); showSound(); };
   $('slVolume').value = sound.volume;
   $('slVolume').oninput = e => { sound.setVolume(+e.target.value); if (!sound.enabled) { sound.setEnabled(true); showSound(); } };
@@ -374,6 +381,9 @@
       view.update(replay);
     }
 
+    // muziek leeft mee: rustig bij bouwen, drums tijdens het trainen
+    music.setIntensity(editor.active ? 0 : training ? 2 : 1);
+
     // 3. tekenen
     view.render();
     if (frameNo++ % 6 === 0) { updatePanel(); updateHud(); }
@@ -383,5 +393,5 @@
   requestAnimationFrame(frame);
 
   // voor in de browser-console: GROW.app.evo enz.
-  G.app = { get evo() { return evo; }, view, sound, startReplay, replayEpisode: () => replay };
+  G.app = { get evo() { return evo; }, view, sound, music, startReplay, replayEpisode: () => replay };
 })((globalThis.GROW = globalThis.GROW || {}));
