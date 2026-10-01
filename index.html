@@ -1,0 +1,158 @@
+<!doctype html>
+<html lang="en">
+<head>
+<meta charset="utf-8">
+<meta name="viewport" content="width=device-width, initial-scale=1">
+<title>GrowBot Parkour Lab</title>
+<style>
+  :root {
+    --bg: #0e1116; --panel: rgba(22, 26, 33, 0.92); --line: #2a303a; --grid: #232933;
+    --text: #e6e9ef; --muted: #8b93a1; --accent: #ffb347; --accent-2: #5ad1c8;
+    --ok: #7ee787; --bad: #ff7b72;
+    --series-1: #ffb347; --series-2: #5ad1c8;
+  }
+  * { box-sizing: border-box; }
+  html, body { margin: 0; height: 100%; background: var(--bg); color: var(--text);
+    font: 13px/1.4 ui-sans-serif, system-ui, -apple-system, "Segoe UI", sans-serif; overflow: hidden; }
+  #viewport { position: fixed; inset: 0; }
+  #viewport canvas { display: block; }
+
+  #panel { position: fixed; top: 12px; left: 12px; bottom: 12px; width: 320px; overflow-y: auto;
+    background: var(--panel); border: 1px solid var(--line); border-radius: 12px; padding: 14px;
+    backdrop-filter: blur(6px); }
+  h1 { font-size: 16px; margin: 0 0 2px; letter-spacing: .2px; }
+  h1 span { color: var(--accent); }
+  .sub { color: var(--muted); font-size: 12px; margin-bottom: 12px; }
+  h2 { font-size: 11px; text-transform: uppercase; letter-spacing: .08em; color: var(--muted);
+    margin: 16px 0 8px; font-weight: 600; }
+  .row { display: flex; gap: 6px; flex-wrap: wrap; }
+  button, select, label.btn { background: #232934; color: var(--text); border: 1px solid var(--line);
+    border-radius: 8px; padding: 7px 10px; font: inherit; cursor: pointer; }
+  button:hover, label.btn:hover { border-color: #3b4452; background: #2a313d; }
+  button.primary { background: var(--accent); color: #1a1205; border-color: var(--accent); font-weight: 600; }
+  button.primary:hover { filter: brightness(1.08); background: var(--accent); }
+  button:disabled { opacity: .45; cursor: default; }
+  .grow { flex: 1; }
+  .stats { display: grid; grid-template-columns: 1fr 1fr; gap: 6px; }
+  .stat { background: #181c23; border: 1px solid var(--line); border-radius: 8px; padding: 6px 8px; }
+  .stat .k { color: var(--muted); font-size: 11px; }
+  .stat .v { font-size: 16px; font-variant-numeric: tabular-nums; }
+  .stat.wide { grid-column: span 2; }
+  .stat .v.small { font-size: 13px; }
+  .bar { height: 4px; background: #181c23; border-radius: 4px; overflow: hidden; margin-top: 8px; }
+  .bar > div { height: 100%; width: 0; background: var(--accent-2); transition: width .1s linear; }
+  canvas#chart { width: 100%; height: 120px; display: block; background: #181c23;
+    border: 1px solid var(--line); border-radius: 8px; }
+  .legend { display: flex; gap: 12px; color: var(--muted); font-size: 11px; margin-top: 4px; }
+  .legend i { display: inline-block; width: 10px; height: 3px; border-radius: 2px; vertical-align: middle; margin-right: 4px; }
+  .cps { display: flex; gap: 4px; flex-wrap: wrap; }
+  .cp { font-size: 11px; padding: 3px 7px; border-radius: 999px; border: 1px solid var(--line); color: var(--muted); }
+  .cp.done { border-color: var(--ok); color: var(--ok); }
+  .slider { display: grid; grid-template-columns: 1fr 52px; align-items: center; gap: 4px 8px; margin-bottom: 6px; }
+  .slider label { color: var(--muted); font-size: 12px; }
+  .slider output { text-align: right; font-variant-numeric: tabular-nums; }
+  .slider input { grid-column: span 2; width: 100%; accent-color: var(--accent); }
+  .check { display: flex; align-items: center; gap: 6px; color: var(--muted); }
+  .hint { color: var(--muted); font-size: 11px; margin-top: 6px; }
+
+  #hud { position: fixed; top: 12px; right: 12px; background: var(--panel); border: 1px solid var(--line);
+    border-radius: 10px; padding: 8px 12px; font-variant-numeric: tabular-nums; min-width: 190px; }
+  #hud .big { font-size: 20px; font-weight: 600; }
+  #hud .state { color: var(--accent-2); }
+  #hud .sens { color: var(--muted); font-size: 11px; margin-top: 4px; }
+  #hud .sens b { color: var(--text); font-weight: 500; }
+  #toast { position: fixed; bottom: 16px; right: 16px; background: var(--panel); border: 1px solid var(--line);
+    border-radius: 8px; padding: 8px 12px; opacity: 0; transition: opacity .3s; pointer-events: none; }
+  #toast.show { opacity: 1; }
+
+  @media (max-width: 720px) {
+    #panel { top: auto; left: 8px; right: 8px; width: auto; height: 46vh; bottom: 8px; }
+    #hud { top: 8px; right: 8px; left: 8px; }
+  }
+</style>
+</head>
+<body>
+<div id="viewport"></div>
+
+<aside id="panel">
+  <h1>GrowBot <span>Parkour Lab</span></h1>
+  <div class="sub">One sphere grows bones &amp; muscles and evolves to beat the course.</div>
+
+  <div class="row">
+    <button id="btnTrain" class="primary grow">▶ Start training</button>
+    <button id="btnReset" title="New random population">Reset</button>
+  </div>
+  <div class="row" style="margin-top:6px">
+    <label class="check"><input type="checkbox" id="chkTurbo"> Turbo (faster training, choppier view)</label>
+  </div>
+  <div class="bar"><div id="evalBar"></div></div>
+
+  <h2>Evolution</h2>
+  <div class="stats">
+    <div class="stat"><div class="k">Generation</div><div class="v" id="sGen">0</div></div>
+    <div class="stat"><div class="k">Evaluations/s</div><div class="v" id="sEps">0</div></div>
+    <div class="stat"><div class="k">Champion fitness</div><div class="v" id="sFit">–</div></div>
+    <div class="stat"><div class="k">Avg distance (8 runs)</div><div class="v" id="sDist">–</div></div>
+    <div class="stat wide"><div class="k">Champion body</div><div class="v small" id="sBody">–</div></div>
+    <div class="stat"><div class="k">Species</div><div class="v" id="sSpecies">–</div></div>
+    <div class="stat"><div class="k">Found in gen</div><div class="v" id="sChampGen">–</div></div>
+  </div>
+
+  <h2>Fitness per generation</h2>
+  <canvas id="chart"></canvas>
+  <div class="legend"><span><i style="background:var(--series-1)"></i>champion</span><span><i style="background:var(--series-2)"></i>population average</span></div>
+
+  <h2>Replay</h2>
+  <div class="cps" id="cps"></div>
+  <div class="row" style="margin-top:8px">
+    <select id="selSpeed" title="Replay speed">
+      <option value="0.25">0.25×</option><option value="0.5">0.5×</option>
+      <option value="1" selected>1×</option><option value="2">2×</option><option value="4">4×</option>
+    </select>
+    <button id="btnReplay">↻ Restart replay</button>
+    <label class="check"><input type="checkbox" id="chkFollow" checked> Follow</label>
+  </div>
+  <div class="hint">Drag to orbit · scroll to zoom · right-drag to pan.</div>
+
+  <h2>Fitness &amp; growth settings</h2>
+  <div id="sliders"></div>
+
+  <h2>Save / load</h2>
+  <div class="row">
+    <button id="btnSave">⬇ Download JSON</button>
+    <label class="btn">⬆ Load JSON<input type="file" id="fileLoad" accept=".json,application/json" hidden></label>
+  </div>
+  <div class="row" style="margin-top:6px">
+    <button id="btnExample">★ Example champion</button>
+    <button id="btnRestore">Restore last session</button>
+  </div>
+  <div class="hint">Train faster in a terminal: <code>node tools/train.js --gens 300</code>, then load <code>champions/champion.json</code>.</div>
+</aside>
+
+<div id="hud">
+  <div class="state" id="hState">one sphere</div>
+  <div class="big" id="hDist">0.00 m</div>
+  <div id="hTime">t = 0.0 s</div>
+  <div class="sens">eyes: step <b id="hStep">0</b> · gap <b id="hGap">no</b> · side <b id="hSide">0</b></div>
+</div>
+<div id="toast"></div>
+
+<!-- Three.js (lokaal meegeleverd, werkt dus ook offline) -->
+<script src="lib/three.min.js"></script>
+<script src="lib/OrbitControls.js"></script>
+<!-- Simulatie-kern (geen graphics) -->
+<script src="src/core/config.js"></script>
+<script src="src/core/rng.js"></script>
+<script src="src/core/physics.js"></script>
+<script src="src/core/parkour.js"></script>
+<script src="src/core/genome.js"></script>
+<script src="src/core/episode.js"></script>
+<script src="src/core/evolution.js"></script>
+<!-- Voorbeeld-kampioen (getraind met tools/train.js) -->
+<script src="champions/example.js"></script>
+<!-- Weergave + bediening -->
+<script src="src/ui/render.js"></script>
+<script src="src/ui/chart.js"></script>
+<script src="src/ui/main.js"></script>
+</body>
+</html>

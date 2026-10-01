@@ -1,0 +1,5 @@
+node_modules/
+# eigen trainingsresultaten (maak je met tools/train.js)
+champions/champion.json
+.DS_Store
+Thumbs.db
