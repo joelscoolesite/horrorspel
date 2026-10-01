@@ -78,6 +78,9 @@ GROW_MODULE(function (G) {
       trials: 3,            // elk organisme 3× testen met (elke generatie) andere starts
       nominalTrial: 0,      // 1 = de standaard-start zit altijd in de test (0 = alleen willekeurige: robuuster)
       validateTop: 2,       // beste 2 van elke generatie extra testen op 8 vaste starts
+      validationRefresh: 10,// elke 10 generaties nieuwe test-starts (tegen uit-het-hoofd-leren)
+      validationSize: 10,   // ...met zoveel starts
+      novelty: 0.6,         // max. gewicht van "nieuw gedrag" als de evolutie vastzit (0 = uit)
       lockBody: 0,          // 1 = lichaam ligt vast (zelf gebouwd), alleen het brein evolueert
       curriculum: 1,        // 1 = begin makkelijk (geen gat, vlak) en maak het steeds moeilijker
       levelStep: 0.1,       // zoveel moeilijker per keer
@@ -90,6 +93,8 @@ GROW_MODULE(function (G) {
         toggleMuscle: 0.03, // bot <-> spier
         strengthRate: 0.1,  // sterkte van een stokje bijsturen (nieuwe stokjes starten op 0)
         addNode: 0.10,      // GROEI: nieuwe bol + stokje(s)
+        symmetric: 0.7,     // kans dat een groei-stap gespiegeld is (links + rechts tegelijk)
+        anti: 0.03,         // kans dat een spiegel-spier van fase wisselt (mee ↔ tegen)
         addStick: 0.08,     // GROEI: nieuw stokje tussen bestaande bollen
         removeStick: 0.05,  // SNOEI
         removeNode: 0.04    // SNOEI

@@ -17,6 +17,8 @@ GROW_MODULE(function (G) {
   const M = G.M; // deterministische sin/cos/tanh (zie dmath.js)
 
   const smooth = u => u * u * (3 - 2 * u);
+  // oud genoom zonder bericht-gewicht? → aanvullen met 0 (gedraagt zich dan als vroeger)
+  const pad = w => (w.length >= G.Genome.NIN ? w : w.concat(new Array(G.Genome.NIN - w.length).fill(0)));
 
   // "Domain randomization": elk organisme wordt meerdere keren getest met
   // een iets andere start (positie, draaiing, ritme). Zo winnen ROBUUSTE
@@ -67,12 +69,22 @@ GROW_MODULE(function (G) {
         const k = (s.m ? P.muscleStiffness : P.boneStiffness) * strength;
         W.addStick(s.a, s.b, rest, k);
         W.sticks[W.sticks.length - 1].active = false;
-        return { rest, act: 0, muscle: s.m, w: s.w, grow: null };
+        return {
+          rest, act: 0, muscle: s.m, w: pad(s.w), u: s.u ? pad(s.u) : null, grow: null,
+          mirror: s.mirOf !== undefined, anti: !!s.anti, // spiegelbeeld: links↔rechts, evt. tegenfase
+          msg: 0, msgNext: 0, nbrs: []
+        };
       });
 
       // per bol: welke stokjes raken hem?
       this.touching = genome.nodes.map(() => []);
       genome.sticks.forEach((s, k) => { this.touching[s.a].push(k); this.touching[s.b].push(k); });
+      // buren voor berichten: spieren die een bol delen
+      this.sticks.forEach((st, k) => {
+        const s = genome.sticks[k], set = new Set();
+        for (const j of this.touching[s.a].concat(this.touching[s.b])) if (j !== k && this.sticks[j].muscle) set.add(j);
+        st.nbrs = [...set];
+      });
 
       this.nodeBorn = new Array(N).fill(-1);
       this.nodeBorn[0] = 0;
@@ -83,6 +95,7 @@ GROW_MODULE(function (G) {
       this.done = false;
       this.reason = '';
       this.maxX = 0;
+      this.maxY = -Infinity;
       this.lastImproveX = 0;
       this.lastImproveT = this.growEnd;
       this.energy = 0;
@@ -176,12 +189,27 @@ GROW_MODULE(function (G) {
         const ws = W.sticks[k], a = W.nodes[ws.a], b = W.nodes[ws.b], w = st.w;
         const tilt = clamp((b.y - a.y) / st.rest, -1, 1);    // wijst het stokje omhoog?
         const fwd = clamp((b.x - a.x) / st.rest, -1, 1);     // wijst het stokje vooruit?
-        const sum = w[0] * s0 + w[1] * c0 + w[2] * prox[ws.a] + w[3] * prox[ws.b] +
-          w[4] * step + w[5] * hole + w[6] * tilt + w[7] * fwd + w[8] * side + w[9];
+        // spiegelbeeld: zelfde brein, maar links↔rechts omgedraaid en evt. in tegenfase
+        const ss = st.anti ? -s0 : s0, cc = st.anti ? -c0 : c0, sd = st.mirror ? -side : side;
+        // bericht van de buren (gemiddelde van hun vorige bericht)
+        let msgIn = 0;
+        if (st.nbrs.length) {
+          for (const j of st.nbrs) msgIn += this.sticks[j].msg;
+          msgIn /= st.nbrs.length;
+        }
+        const sum = w[0] * ss + w[1] * cc + w[2] * prox[ws.a] + w[3] * prox[ws.b] +
+          w[4] * step + w[5] * hole + w[6] * tilt + w[7] * fwd + w[8] * sd + w[9] + w[10] * msgIn;
+        const u = st.u;
+        if (u) {
+          st.msgNext = M.tanh(u[0] * ss + u[1] * cc + u[2] * prox[ws.a] + u[3] * prox[ws.b] +
+            u[4] * step + u[5] * hole + u[6] * tilt + u[7] * fwd + u[8] * sd + u[9] + u[10] * msgIn);
+        }
         st.act += (M.tanh(sum) - st.act) * speed; // traag bijsturen: geen schokken
         ws.len = st.rest * (1 + amp * st.act * fade);
         this.energy += Math.abs(st.act) * fade * dt;
       }
+      // berichten pas na de ronde doorgeven → volgorde van de stokjes maakt niet uit
+      for (const st of this.sticks) st.msg = st.msgNext;
     }
 
     _measure() {
@@ -191,15 +219,16 @@ GROW_MODULE(function (G) {
       }
       const x = root.x - this.startX;
       if (x > this.maxX) this.maxX = x;
+      if (root.y > this.maxY) this.maxY = root.y;
       if (this.maxX > this.lastImproveX + E.stagnationDist) {
         this.lastImproveX = this.maxX;
         this.lastImproveT = Math.max(this.t, this.growEnd);
       }
-      if (root.y < E.deathY) { this.done = true; this.dead = true; this.reason = 'gevallen'; }
+      if (root.y < (this.track.deathY !== undefined ? this.track.deathY : E.deathY)) { this.done = true; this.dead = true; this.reason = 'gevallen'; }
       else if (root.x >= this.track.finishX) {
         this.done = true; this.finished = true; this.reason = 'finish!';
         this.finishTime = this.t - this.growEnd;
-      } else if (this.t > this.growEnd + E.maxTime) { this.done = true; this.reason = 'tijd op'; }
+      } else if (this.t > this.growEnd + (this.track.maxTime || E.maxTime)) { this.done = true; this.reason = 'tijd op'; }
       else if (this.t - this.lastImproveT > E.stagnationTime) { this.done = true; this.reason = 'vastgelopen'; }
     }
 
@@ -232,6 +261,9 @@ GROW_MODULE(function (G) {
         sticks: this.genome.sticks.length,
         dead: this.dead,
         reason: this.reason,
+        endX: this.root.x - this.startX,   // waar stond hij aan het eind?
+        finalZ: this.root.z,               // hoe ver naar links/rechts?
+        maxY: this.maxY,                   // hoe hoog kwam de hoofdbol?
         time: this.t
       };
     }
@@ -266,6 +298,10 @@ GROW_MODULE(function (G) {
       gapRate: avg('passedGap'),          // deel van de runs dat over de spleet kwam
       finishTime: avg('finishTime'),
       energy: avg('energy'),
+      endX: avg('endX'),
+      finalZ: avg('finalZ'),
+      maxY: avg('maxY'),
+      runs: list.map(r => ({ endX: r.endX, maxX: r.maxX, reason: r.reason, finished: r.finished })),
       trials: list.length,
       first: list[0]
     };

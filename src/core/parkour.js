@@ -21,6 +21,8 @@ GROW_MODULE(function (G) {
   // level = moeilijkheid 0..1 (curriculum). Bij 0 is alles vlak en is er
   // geen spleet; bij 1 heeft alles de maten uit config.js.
   function buildParkour(cfg = G.CONFIG, level = 1) {
+    // zelfgebouwd parcours? → tracks.js
+    if (cfg.track && cfg.track.segments) return G.buildCustomTrack(cfg.track, cfg, level);
     const PK = cfg.parkour;
     const W = PK.halfWidth;                  // halve breedte van de baan
     const GAP = PK.gapWidth * level;
@@ -87,6 +89,7 @@ GROW_MODULE(function (G) {
       colliders,
       checkpoints,
       finishX: 28,
+      length: 32.5,
       start: [0, 0, 0],
       halfWidth: W,
       // Hoogste grond op (x, z); -Infinity boven een gat

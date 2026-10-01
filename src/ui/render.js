@@ -8,7 +8,7 @@
   const T = globalThis.THREE;
 
   const COLORS = {
-    ground: 0x3a4250, ramp: 0x4a5568, block: 0xc0563a, rail: 0x2b313b, wall: 0x2b313b, pit: 0x14161b,
+    ground: 0x3a4250, ramp: 0x4a5568, block: 0xc0563a, mover: 0xd946ef, rail: 0x2b313b, wall: 0x2b313b, pit: 0x14161b,
     root: 0xffb347, node: 0x5ad1c8, bone: 0xe8e4da,
     muscleA: new T.Color(0x3b82f6), muscleB: new T.Color(0xef4444)
   };
@@ -71,19 +71,26 @@
       const group = (this.trackGroup = new T.Group());
       this.scene.add(group);
       this.trackLevel = track.level;
+      this.trackRef = track;
+      this.movers = []; // bewegende obstakels: positie volgt de tijd van de replay
       for (const c of track.colliders) {
         const geo = new T.BoxGeometry(c.hx * 2, c.hy * 2, c.hz * 2);
-        const mat = new T.MeshStandardMaterial({ color: COLORS[c.kind] || COLORS.ground, roughness: 0.9 });
+        const mover = c.kind === 'mover';
+        const mat = new T.MeshStandardMaterial({
+          color: COLORS[c.kind] || COLORS.ground, roughness: 0.9,
+          emissive: mover ? COLORS.mover : 0x000000, emissiveIntensity: mover ? 0.35 : 0
+        });
         const m = new T.Mesh(geo, mat);
         m.position.set(c.cx, c.cy, c.cz);
         m.rotation.z = c.angle;
         m.receiveShadow = true;
         m.castShadow = c.kind === 'block' || c.kind === 'rail';
         group.add(m);
+        if (mover) this.movers.push({ mesh: m, collider: c });
       }
       // Rand-lijntjes op de grond: geven gevoel van snelheid/afstand
       const lineMat = new T.LineBasicMaterial({ color: 0x566070 });
-      for (let x = -4; x <= 32; x += 1) {
+      for (let x = -4; x <= (track.length || 32); x += 1) {
         const y = track.heightAt(x, 0);
         if (y === -Infinity) continue;
         const g = new T.BufferGeometry().setFromPoints([
@@ -144,6 +151,7 @@
 
     update(ep) {
       const W = ep.world;
+      for (const mv of this.movers || []) mv.mesh.position.z = mv.collider.czAt(W.time);
       for (let i = 0; i < this.nodeMeshes.length; i++) {
         const m = this.nodeMeshes[i], n = W.nodes[i];
         m.visible = n.active;
@@ -191,6 +199,54 @@
     }
 
     // =========================================================
+    //  GHOST RACE: doorzichtige wezens van de laatste generatie
+    // =========================================================
+    setGhosts(genomes) {
+      if (!this.ghostGroup) {
+        this.ghostGroup = new T.Group();
+        this.scene.add(this.ghostGroup);
+        this.ghostNodeMat = new T.MeshStandardMaterial({ color: 0x9fb4ff, transparent: true, opacity: 0.28, depthWrite: false });
+        this.ghostStickMat = new T.MeshStandardMaterial({ color: 0xc8d2ff, transparent: true, opacity: 0.22, depthWrite: false });
+      }
+      this.ghostGroup.clear();
+      this.ghosts = genomes.map(g => {
+        const nodes = g.nodes.map(n => {
+          const m = new T.Mesh(this.sphereGeo, this.ghostNodeMat);
+          m.userData.r = n.r;
+          this.ghostGroup.add(m);
+          return m;
+        });
+        const sticks = g.sticks.map(() => {
+          const m = new T.Mesh(this.cylGeo, this.ghostStickMat);
+          this.ghostGroup.add(m);
+          return m;
+        });
+        return { nodes, sticks };
+      });
+    }
+
+    updateGhosts(eps) {
+      if (!this.ghosts) return;
+      this.ghosts.forEach((gh, k) => {
+        const ep = eps[k];
+        if (!ep) return;
+        const W = ep.world;
+        gh.nodes.forEach((m, i) => {
+          const n = W.nodes[i];
+          m.visible = n.active;
+          if (!n.active) return;
+          m.position.set(n.x, n.y, n.z);
+          m.scale.setScalar(n.r);
+        });
+        gh.sticks.forEach((m, k2) => {
+          const ws = W.sticks[k2];
+          m.visible = ws.active;
+          if (ws.active) this._placeStick(m, W.nodes[ws.a], W.nodes[ws.b], 0.03);
+        });
+      });
+    }
+
+    // =========================================================
     //  BOUW-MODUS
     // =========================================================
     setEditMode(on) {
@@ -205,14 +261,25 @@
         this.ghostStick = new T.Mesh(this.cylGeo, new T.MeshBasicMaterial({ color: 0xffffff, transparent: true, opacity: 0.35 }));
         this.scene.add(this.ghost, this.ghostStick);
         this._ray = new T.Raycaster();
+        // doorzichtig spiegelvlak op z = 0 (spiegel-modus)
+        this.mirrorPlane = new T.Mesh(new T.PlaneGeometry(4, 2.5),
+          new T.MeshBasicMaterial({ color: 0x5ad1c8, transparent: true, opacity: 0.07, side: T.DoubleSide, depthWrite: false }));
+        this.mirrorPlane.position.set(0, 1.25, 0);
+        this.scene.add(this.mirrorPlane);
       }
       this.editGroup.visible = on;
+      this.mirrorPlane.visible = on && this.mirrorOn !== false;
       this.ghost.visible = this.ghostStick.visible = false;
       if (on) {
         this.follow = false;
         this.controls.target.set(0, 0.6, 0);
         this.camera.position.set(-1.5, 2.4, 4.5);
       }
+    }
+
+    showMirrorPlane(on) {
+      this.mirrorOn = on;
+      if (this.mirrorPlane) this.mirrorPlane.visible = on && this.editing;
     }
 
     // Teken het ontwerp opnieuw (wordt na elke wijziging aangeroepen)
@@ -286,6 +353,18 @@
       this.ghost.position.set(to.x, to.y, to.z);
       this.ghost.scale.setScalar(r);
       this._placeStick(this.ghostStick, from, to, 0.03);
+    }
+
+    // Klein plaatje van wat de camera nu ziet (voor de galerij)
+    snapshot(w = 160, h = 100) {
+      this.renderer.render(this.scene, this.camera);
+      const src = this.renderer.domElement, c = document.createElement('canvas');
+      c.width = w; c.height = h;
+      const sw = src.width, sh = src.height, ar = w / h;
+      let cw = sw, ch = sw / ar;
+      if (ch > sh) { ch = sh; cw = sh * ar; }
+      c.getContext('2d').drawImage(src, (sw - cw) / 2, (sh - ch) / 2, cw, ch, 0, 0, w, h);
+      return c.toDataURL('image/jpeg', 0.75);
     }
 
     render() {

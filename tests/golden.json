@@ -1,0 +1,62 @@
+{
+ "examples": [
+  {
+   "name": "3 spheres · 3 sticks",
+   "traces": [
+    {
+     "hash": "10cea827",
+     "steps": 2627,
+     "maxX": 28.01615641107395,
+     "reason": "finish!"
+    },
+    {
+     "hash": "2d726b3f",
+     "steps": 1875,
+     "maxX": 28.02134995585792,
+     "reason": "finish!"
+    },
+    {
+     "hash": "f9dd588c",
+     "steps": 2861,
+     "maxX": 28.00042915641273,
+     "reason": "finish!"
+    }
+   ]
+  },
+  {
+   "name": "8 spheres · 20 sticks",
+   "traces": [
+    {
+     "hash": "7471aa7c",
+     "steps": 1796,
+     "maxX": 28.08601010836482,
+     "reason": "finish!"
+    },
+    {
+     "hash": "aa59d4e4",
+     "steps": 1955,
+     "maxX": 28.039618819254134,
+     "reason": "finish!"
+    },
+    {
+     "hash": "20b2f651",
+     "steps": 1729,
+     "maxX": 28.062624012111034,
+     "reason": "finish!"
+    }
+   ]
+  }
+ ],
+ "dmath": {
+  "sin": [
+   0.29552020666133955,
+   -0.818277111064409,
+   -0.13323204141994271
+  ],
+  "tanh": [
+   0.2913126124515909,
+   -0.9757431631592921,
+   0.9993442520798211
+  ]
+ }
+}

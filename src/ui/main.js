@@ -44,28 +44,50 @@
   let acc = 0;
 
   // ---------------- replay ----------------
-  function startReplay(genome) {
-    if (view.trackLevel !== evo.track.level) view.buildTrack(evo.track); // level veranderd?
+  // track = op welk parcours (standaard: het trainingsparcours)
+  function startReplay(genome, track = evo.track) {
+    if (view.trackRef !== track || !cpEls.length) { view.buildTrack(track); buildChips(track); } // ander parcours/level?
     replayGenome = genome;
-    replay = new G.Episode(genome, evo.track, cfg);
+    replayTrack = track;
+    replay = new G.Episode(genome, track, cfg);
     view.setCreature(genome);
+    startGhosts(track);
     view.resetCamera(0);
     replayWait = 0;
     acc = 0;
   }
+  let replayTrack = null;
 
-  // Begin met één enkele bol — zo begint elk leven
-  startReplay(G.Genome.root(cfg));
+  // ---------------- ghost race ----------------
+  // De beste wezens van de laatste generatie lopen doorzichtig mee, elk in
+  // een eigen baan (links/rechts van de kampioen). Zo zie je evolutie gebeuren.
+  let ghostEps = [];
+  function startGhosts(track) {
+    const list = ($('chkGhosts').checked && track === evo.track && evo.ghosts) ? evo.ghosts.slice(0, 12) : [];
+    ghostEps = list.map((gh, k) => {
+      const side = k % 2 ? -1 : 1, lane = Math.floor(k / 2) + 1;      // ±0.4, ±0.8, …
+      const dz = side * Math.min(track.halfWidth - 0.5, lane * 0.4);
+      return new G.Episode(gh.genome, track, cfg, { dx: 0, dz, phase: 0, yaw: 0 });
+    });
+    view.setGhosts(list.map(gh => gh.genome));
+  }
 
   // ---------------- checkpoints-chips ----------------
   const CP_NAMES = { Spleet: 'Gap', Helling: 'Ramp', Horde: 'Hurdle', Trede: 'Step' };
-  const cpEls = evo.track.checkpoints.map(c => CP_NAMES[c.label] || c.label).concat(['Finish']).map(label => {
-    const el = document.createElement('span');
-    el.className = 'cp';
-    el.textContent = label;
-    $('cps').appendChild(el);
-    return el;
-  });
+  let cpEls = [];
+  function buildChips(track) {
+    $('cps').innerHTML = '';
+    cpEls = track.checkpoints.map(c => CP_NAMES[c.label] || c.label).concat(['Finish']).map(label => {
+      const el = document.createElement('span');
+      el.className = 'cp';
+      el.textContent = label;
+      $('cps').appendChild(el);
+      return el;
+    });
+  }
+
+  // Begin met één enkele bol — zo begint elk leven
+  startReplay(G.Genome.root(cfg));
 
   // ---------------- sliders ----------------
   const sliders = [
@@ -120,6 +142,7 @@
     else toast('Curriculum on: press Reset to start again from an easy course');
   };
   $('chkFollow').onchange = e => { view.follow = e.target.checked; };
+  $('chkGhosts').onchange = () => replayGenome && startReplay(replayGenome, replayTrack);
   $('selSpeed').onchange = e => { speed = +e.target.value; };
   $('btnReplay').onclick = () => replayGenome && startReplay(replayGenome);
 
@@ -210,12 +233,89 @@
     toast: msg => { sound.ui('error'); toast(msg); },
     sound: kind => sound.ui(kind),
     onChange: info => {
+      $('btnUndo').disabled = !info.canUndo;
+      $('btnRedo').disabled = !info.canRedo;
       $('bInfo').textContent = info.text;
       $('bProblem').textContent = info.problem;
       $('btnTrainDesign').disabled = !!info.problem;
     }
   });
   let wasTraining = false;
+  // ---------------- parcoursen & uitdagingen ----------------
+  // parcours bouwen zonder het trainingsparcours te veranderen
+  function trackFor(def, level = 1) {
+    const saved = cfg.track;
+    cfg.track = def;
+    const t = G.buildParkour(cfg, level);
+    cfg.track = saved;
+    return t;
+  }
+  let courseOpen = false, courseName = 'Classic';
+  const courses = new G.CoursePanel({
+    el: $('coursePanel'), cfg, view, toast,
+    sound: { finish: () => sound.finish(), ui: k => sound.ui(k) },
+    evo: () => evo,
+    champion: () => evo.champion,
+    showCourse: def => startReplay(G.Genome.clone(evo.champion ? evo.champion.genome : replayGenome), trackFor(def, 1)),
+    watch: (genome, def) => startReplay(G.Genome.clone(genome), trackFor(def, 1)),
+    trainOn: (def, name) => {
+      courseName = name || (def ? def.name : 'Classic');
+      evo.setTrack(def, cfg.evo.curriculum ? 0 : 1);
+      setCourseMode(false);
+      replayVersion = -1;
+      lastLevel = evo.level;
+      startReplay(G.Genome.clone(evo.champion ? evo.champion.genome : replayGenome));
+      setTraining(true);
+      drawChart();
+      toast(`Training on "${courseName}"` + (cfg.evo.curriculum ? ' (curriculum: starts easy)' : ''));
+    },
+    close: () => setCourseMode(false)
+  });
+  function setCourseMode(on) {
+    courseOpen = on;
+    $('coursePanel').hidden = !on;
+    $('mainPanel').hidden = on;
+    if (on) courses.render();
+    else if (replayTrack !== evo.track) startReplay(G.Genome.clone(evo.champion ? evo.champion.genome : replayGenome));
+  }
+  $('btnCourses').onclick = () => setCourseMode(true);
+
+  // ---------------- galerij ----------------
+  const gallery = new G.Gallery({
+    el: $('galleryPanel'), view, toast,
+    sound: { ui: k => sound.ui(k) },
+    champion: () => evo.champion,
+    close: () => setGalleryMode(false),
+    watch: it => startReplay(G.Genome.clone(it.genome), trackFor(it.track, it.level)),
+    train: it => {
+      cfg.evo.lockBody = 0;
+      evo = newEvolution({ seedGenome: G.Genome.normalize(G.Genome.clone(it.genome)) });
+      evo.setTrack(it.track, it.level);
+      courseName = it.track ? it.track.name : 'Classic';
+      replayVersion = -1; lastLevel = evo.level;
+      setGalleryMode(false);
+      startReplay(G.Genome.clone(it.genome));
+      setTraining(true);
+      drawChart();
+      toast(`Training "${it.name}" further`);
+    },
+    edit: it => {
+      setGalleryMode(false);
+      setBuildMode(true);
+      const d = G.Genome.toDesign(G.Genome.clone(it.genome), [0, cfg.body.rootRadius + 0.01, 0]);
+      const lift = Math.max(0, -Math.min(...d.nodes.map(n => n.y - n.r)));
+      for (const n of d.nodes) n.y += lift;
+      editor.open(d);
+    }
+  });
+  function setGalleryMode(on) {
+    $('galleryPanel').hidden = !on;
+    $('mainPanel').hidden = on;
+    if (on) gallery.render();
+    else if (replayTrack !== evo.track) startReplay(G.Genome.clone(evo.champion ? evo.champion.genome : replayGenome));
+  }
+  $('btnGallery').onclick = () => setGalleryMode(true);
+
   function setBuildMode(on) {
     $('buildPanel').hidden = !on;
     $('mainPanel').hidden = on;
@@ -241,6 +341,15 @@
       editor.open(d);
     } else editor.loadPreset(name);
   };
+  $('btnUndo').onclick = () => editor.undo();
+  $('btnRedo').onclick = () => editor.redo();
+  $('btnMirror').onclick = () => {
+    editor.mirrorMode = !editor.mirrorMode;
+    $('btnMirror').classList.toggle('on', editor.mirrorMode);
+    $('btnMirror').textContent = `🪞 Mirror: ${editor.mirrorMode ? 'on' : 'off'}`;
+    view.showMirrorPlane(editor.mirrorMode);
+  };
+  $('selPhase').onchange = e => editor.setMirrorPhase(e.target.value === 'anti');
   $('btnBigger').onclick = () => editor.resizeSelected(0.02);
   $('btnSmaller').onclick = () => editor.resizeSelected(-0.02);
   $('btnDelete').onclick = () => editor.deleteSelected();
@@ -275,6 +384,16 @@
 
   function drawChart() { G.drawChart($('chart'), evo.history); }
 
+  // "Waarom faalt hij?" — alleen opnieuw tekenen als er iets veranderd is
+  let failKey = '';
+  function drawFail() {
+    const key = `${evo.championVersion}|${evo.track.finishX}|${evo.level}|${evo.champion ? evo.champion.fitness : ''}|${$('failChart').clientWidth}`;
+    if (key === failKey) return;
+    failKey = key;
+    G.drawFailChart($('failChart'), evo.track, evo.champion);
+    $('failText').textContent = evo.champion ? G.failSummary(evo.track, evo.champion.stats.runs) : '';
+  }
+
   let evalCounter = { t: performance.now(), n: 0, rate: 0 };
   function updatePanel() {
     $('sGen').textContent = evo.generation;
@@ -295,7 +414,8 @@
     }
     const h = evo.history[evo.history.length - 1];
     if (h) $('sSpecies').textContent = h.species;
-    $('sLevel').textContent = evo.level >= 1 ? 'full' : `${Math.round(evo.level * 100)}%`;
+    drawFail();
+    $('sLevel').textContent = `${courseName} · ${evo.level >= 1 ? 'full' : Math.round(evo.level * 100) + '%'}`;
   }
 
   function updateHud() {
@@ -309,12 +429,17 @@
     else state = 'moving';
     $('hState').textContent = state;
     $('hDist').textContent = replay.maxX.toFixed(2) + ' m';
+    if (ghostEps.length) {
+      const score = e => (e.finished ? 1000 - e.finishTime : e.maxX);
+      const rank = 1 + ghostEps.filter(e => score(e) > score(replay)).length;
+      $('hRace').textContent = `race: ${rank}${['st', 'nd', 'rd'][rank - 1] || 'th'} of ${ghostEps.length + 1}`;
+    } else $('hRace').textContent = '';
     $('hTime').textContent = `t = ${Math.max(0, replay.t - replay.growEnd).toFixed(1)} s`;
     $('hStep').textContent = replay.sensors[0].toFixed(1);
     $('hGap').textContent = replay.sensors[1] ? 'YES' : 'no';
     $('hSide').textContent = replay.sensors[2].toFixed(1);
     const reached = replay.startX + replay.maxX;
-    evo.track.checkpoints.forEach((c, i) => cpEls[i].classList.toggle('done', reached >= c.x));
+    replay.track.checkpoints.forEach((c, i) => cpEls[i] && cpEls[i].classList.toggle('done', reached >= c.x));
     cpEls[cpEls.length - 1].classList.toggle('done', replay.finished);
   }
 
@@ -345,7 +470,7 @@
   }
   function replayCps() {
     const x = replay.startX + replay.maxX;
-    return evo.track.checkpoints.filter(c => x >= c.x).length;
+    return replay.track.checkpoints.filter(c => x >= c.x).length;
   }
 
   // ---------------- hoofd-lus ----------------
@@ -357,7 +482,7 @@
     // 1. training
     if (training && !editor.active && evo.pump(pool ? 2 : turbo ? 40 : 10)) {
       drawChart();
-      if (evo.championVersion !== replayVersion) {
+      if (evo.championVersion !== replayVersion && !courseOpen) {
         replayVersion = evo.championVersion;
         saveChampion();
         startReplay(G.Genome.clone(evo.champion.genome));
@@ -374,11 +499,16 @@
         acc += realDt * speed;
         const dt = cfg.physics.dt;
         let n = 0;
-        while (acc >= dt && n < 400) { stepReplayWithSound(); acc -= dt; n++; }
+        while (acc >= dt && n < 400) {
+          stepReplayWithSound();
+          for (const g of ghostEps) if (!g.done) g.step();
+          acc -= dt; n++;
+        }
       } else if ((replayWait += realDt) > 2) {
         startReplay(replayGenome);
       }
       view.update(replay);
+      view.updateGhosts(ghostEps);
     }
 
     // muziek leeft mee: rustig bij bouwen, drums tijdens het trainen
@@ -393,5 +523,9 @@
   requestAnimationFrame(frame);
 
   // voor in de browser-console: GROW.app.evo enz.
-  G.app = { get evo() { return evo; }, view, sound, music, startReplay, replayEpisode: () => replay };
+  G.app = {
+    get evo() { return evo; }, view, sound, music, startReplay, replayEpisode: () => replay,
+    // (voor tests) geesten bijwerken tot dezelfde tijd als de replay
+    ghostSync: () => { for (const g of ghostEps) while (!g.done && g.t < replay.t) g.step(); }
+  };
 })((globalThis.GROW = globalThis.GROW || {}));

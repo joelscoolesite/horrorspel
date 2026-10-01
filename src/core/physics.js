@@ -42,18 +42,29 @@ GROW_MODULE(function (G) {
       // omhullende doos in wereld-coördinaten → snel "kan niet raken" testen
       this.ex = Math.abs(this.c) * this.hx + Math.abs(this.s) * this.hy;
       this.ey = Math.abs(this.s) * this.hx + Math.abs(this.c) * this.hy;
+      // bewegend obstakel? schuift heen en weer langs z: cz + amp·sin(speed·t + phase)
+      this.motion = o.motion || null;
+    }
+
+    // Waar staat het (bewegende) obstakel op tijdstip t?
+    czAt(t) {
+      const m = this.motion;
+      return m ? this.cz + m.amp * G.M.sin(m.speed * t + m.phase) : this.cz;
     }
 
     // Is bol n binnen (r + marge) van de omhullende doos?
-    near(n, margin) {
-      const m = n.r + margin;
+    near(n, margin, t) {
+      const m = n.r + margin + (this.motion ? 0.2 : 0);
+      const cz = this.motion ? this.czAt(t) : this.cz;
       return Math.abs(n.x - this.cx) <= this.ex + m && Math.abs(n.y - this.cy) <= this.ey + m &&
-        Math.abs(n.z - this.cz) <= this.hz + m;
+        Math.abs(n.z - cz) <= this.hz + m;
     }
 
     // Duwt bol n uit de doos. Geeft true terug bij contact.
-    collide(n) {
-      const dx = n.x - this.cx, dy = n.y - this.cy, dz = n.z - this.cz;
+    // t = tijd in deze wereld (alleen nodig voor bewegende obstakels)
+    collide(n, t) {
+      const cz = this.motion ? this.czAt(t) : this.cz;
+      const dx = n.x - this.cx, dy = n.y - this.cy, dz = n.z - cz;
       const r = n.r;
       if (dx > this.ex + r || dx < -this.ex - r || dy > this.ey + r || dy < -this.ey - r ||
           dz > this.hz + r || dz < -this.hz - r) return false;
@@ -109,6 +120,7 @@ GROW_MODULE(function (G) {
       this.p = params;
       this.nodes = [];
       this.sticks = [];
+      this.time = 0; // eigen klok: bewegende obstakels hangen hiervan af
     }
 
     addNode(x, y, z, r, mass) {
@@ -125,6 +137,7 @@ GROW_MODULE(function (G) {
     }
 
     step(dt) {
+      const t = (this.time += dt);
       const p = this.p, N = this.nodes, S = this.sticks, C = this.colliders;
       const g = p.gravity * dt * dt, damp = p.damping;
       const vmax = p.maxSpeed * dt, vmax2 = vmax * vmax;
@@ -142,7 +155,7 @@ GROW_MODULE(function (G) {
         // "broad phase": onthoud alleen de dozen in de buurt van deze bol
         const near = n.near || (n.near = []);
         near.length = 0;
-        for (let c = 0; c < C.length; c++) if (C[c].near(n, 0.3)) near.push(C[c]);
+        for (let c = 0; c < C.length; c++) if (C[c].near(n, 0.3, t)) near.push(C[c]);
       }
 
       // 2. Constraints oplossen (Gauss-Seidel)
@@ -162,7 +175,7 @@ GROW_MODULE(function (G) {
           const n = N[i];
           if (!n.active) continue;
           const near = n.near;
-          for (let c = 0; c < near.length; c++) near[c].collide(n);
+          for (let c = 0; c < near.length; c++) near[c].collide(n, t);
         }
       }
 

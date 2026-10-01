@@ -20,6 +20,11 @@
 //  3. SOORTEN (uit NEAT) — DNA's met hetzelfde aantal bollen vormen een
 //     soort. Een nieuwe, grotere vorm is eerst vaak slechter (het brein
 //     moet nog leren). Door soorten te beschermen krijgt hij de tijd.
+//  4. NOVELTY SEARCH — zit de evolutie lang vast (geen betere kampioen),
+//     dan telt ook NIEUW GEDRAG mee: "doe iets wat nog niemand deed"
+//     (ergens anders eindigen, hoger komen…). Dat helpt over muren heen.
+//  5. WISSELENDE TEST — elke 10 generaties krijgt de kampioens-test nieuwe
+//     starts, zodat de evolutie die niet uit het hoofd kan leren.
 //
 //  SNELHEID — elke run (organisme × start) is een losse TAAK in een
 //  wachtrij. Zonder "pool" draaien de taken hier (één CPU-kern). Met een
@@ -51,6 +56,10 @@ GROW_MODULE(function (G) {
         this.population.push({ genome, fitness: null, stats: null });
       }
       this.history = [];
+      this.validation = G.VALIDATION;   // starts voor de kampioens-test
+      this.archive = [];                // novelty: gedrag dat we al eens zagen
+      this.lastImprove = 0;             // generatie van de laatste verbetering
+      this.explore = 0;                 // hoeveel telt "nieuw gedrag" nu mee (0..1)
       this.champion = null;
       this.championVersion = 0;
       this.evaluations = 0;
@@ -161,13 +170,13 @@ GROW_MODULE(function (G) {
       this.phase = 'validate';
       this.population.sort((a, b) => b.fitness - a.fitness);
       this.valCands = this.population.slice(0, Math.max(1, this.cfg.evo.validateTop | 0));
-      this.valRuns = this.valCands.map(() => new Array(G.VALIDATION.length).fill(null));
-      this.valCands.forEach((cand, c) => G.VALIDATION.forEach((variant, k) =>
+      this.valRuns = this.valCands.map(() => new Array(this.validation.length).fill(null));
+      this.valCands.forEach((cand, c) => this.validation.forEach((variant, k) =>
         this.queue.push({ kind: 'val', c, k, genome: cand.genome, variant })));
     }
 
     // Volledige test van één genoom op vaste starts (standaard: VALIDATION)
-    evaluate(genome, variants = G.VALIDATION) {
+    evaluate(genome, variants = this.validation) {
       const runs = variants.map(variant => this._runLocal({ genome, variant }));
       const stats = G.mergeSummaries(runs);
       return { stats, fitness: G.computeFitness(stats, this.cfg) };
@@ -194,9 +203,10 @@ GROW_MODULE(function (G) {
         if (!this.champion || fitness > this.champion.fitness) {
           this.champion = {
             genome: G.Genome.clone(cand.genome), fitness, stats,
-            generation: this.generation, level: this.level
+            generation: this.generation, level: this.level, track: this.cfg.track || null
           };
           this.championVersion++;
+          this.lastImprove = this.generation;
         }
       });
 
@@ -204,12 +214,25 @@ GROW_MODULE(function (G) {
         gen: this.generation, best: best.fitness, avg, champ: this.champion.fitness,
         dist: best.stats.maxX, finishRate: best.stats.finishRate,
         nodes: best.genome.nodes.length, sticks: best.genome.sticks.length, species,
-        level: this.level
+        level: this.level, explore: this.explore
       });
 
+      this._novelty(pop);
+      // de beste van deze generatie: voor de "ghost race" in de app
+      this.ghosts = pop.slice(0, 16).map(p => ({ genome: p.genome, fitness: p.fitness, nodes: p.genome.nodes.length }));
       this.population = this._breed(pop);
       this.generation++;
       this._newTrials();
+
+      // Wisselende test: nieuwe starts, de kampioen moet zich opnieuw bewijzen
+      const E0 = this.cfg.evo;
+      if (E0.validationRefresh > 0 && this.generation % E0.validationRefresh === 0) {
+        this.validation = [G.NOMINAL];
+        while (this.validation.length < E0.validationSize) this.validation.push(G.randomVariant(this.rng));
+        const v = this.evaluate(this.champion.genome);
+        this.champion.fitness = v.fitness;
+        this.champion.stats = v.stats;
+      }
 
       // Curriculum: beheerst de kampioen dit level? Dan wordt het moeilijker.
       const E = this.cfg.evo;
@@ -218,6 +241,29 @@ GROW_MODULE(function (G) {
       } else {
         this._startGeneration();
       }
+    }
+
+    // Gedrag samengevat in een paar getallen (waar eindigde hij, hoe hoog kwam hij…)
+    _behavior(st) { return [st.maxX / 10, st.endX / 10, st.finalZ / 2, (st.maxY || 0) / 1.5]; }
+
+    // Novelty: hoe anders is elk DNA dan de rest + het archief?
+    _novelty(pop) {
+      const E = this.cfg.evo;
+      const stuck = this.generation - this.lastImprove;
+      this.explore = E.novelty > 0 ? E.novelty * Math.min(1, Math.max(0, (stuck - 10) / 20)) : 0;
+      const descs = pop.map(p => this._behavior(p.stats));
+      const all = descs.concat(this.archive);
+      const K = Math.min(10, all.length - 1);
+      pop.forEach((p, i) => {
+        const d = all.map(o => Math.hypot(...o.map((v, k) => v - descs[i][k]))).sort((a, b) => a - b);
+        let sum = 0;
+        for (let k = 1; k <= K; k++) sum += d[k]; // d[0] = hijzelf (afstand 0)
+        p.novelty = K > 0 ? sum / K : 0;
+      });
+      // de 2 meest nieuwe gedragingen bewaren in het archief
+      [...pop].sort((a, b) => b.novelty - a.novelty).slice(0, 2)
+        .forEach(p => this.archive.push(this._behavior(p.stats)));
+      if (this.archive.length > 400) this.archive.splice(0, this.archive.length - 400);
     }
 
     _breed(sorted) {
@@ -253,6 +299,12 @@ GROW_MODULE(function (G) {
         const share = Math.sqrt(members.length);
         for (const m of members) m.adj = (m.fitness - minF + 0.01) / share;
       }
+      // + bonus voor nieuw gedrag als de evolutie vastzit (novelty search)
+      if (this.explore > 0) {
+        const maxAdj = Math.max(...sorted.map(m => m.adj));
+        const maxNov = Math.max(1e-9, ...sorted.map(m => m.novelty || 0));
+        for (const m of sorted) m.adj += this.explore * maxAdj * ((m.novelty || 0) / maxNov);
+      }
 
       // 4. Rest vullen met gemuteerde kinderen (toernooiselectie)
       while (next.length < E.popSize) {
@@ -276,10 +328,18 @@ GROW_MODULE(function (G) {
           this.champion.fitness = v.fitness;
           this.champion.stats = v.stats;
           this.champion.level = level;
+          this.champion.track = this.cfg.track || null;
           this.championVersion++;
         }
       }
       this._startGeneration();
+    }
+
+    // Ander parcours (def = { name, segments } of null = Classic)
+    setTrack(def, level = this.level) {
+      this.cfg.track = def || null;
+      this.level = -1; // forceer opnieuw bouwen + kampioen opnieuw meten
+      this.setLevel(level);
     }
 
     // Zet een geladen genoom in de populatie (vervangt de laatste)

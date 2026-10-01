@@ -63,6 +63,32 @@
   .howto b { color: var(--text); font-weight: 600; }
   button.on { border-color: var(--accent); color: var(--accent); }
   [hidden] { display: none !important; }
+  canvas#failChart { width: 100%; height: 74px; display: block; background: #181c23; border: 1px solid var(--line); border-radius: 8px; }
+  .gallery { display: grid; grid-template-columns: 1fr 1fr; gap: 8px; margin-top: 10px; }
+  .gcard { background: #181c23; border: 1px solid var(--line); border-radius: 8px; padding: 6px; }
+  .gcard img { width: 100%; aspect-ratio: 16 / 10; object-fit: cover; border-radius: 5px; background: #0e1116; display: block; }
+  .gname { font-weight: 600; margin-top: 4px; overflow: hidden; text-overflow: ellipsis; white-space: nowrap; }
+  .gmeta { color: var(--muted); font-size: 10.5px; }
+  .gbtns { display: flex; gap: 2px; margin-top: 4px; flex-wrap: wrap; }
+  .courses { display: grid; gap: 6px; }
+  .course { background: #181c23; border: 1px solid var(--line); border-radius: 8px; padding: 6px 9px; cursor: pointer; }
+  .course:hover { border-color: #3b4452; }
+  .course.sel { border-color: var(--accent); }
+  .cname { font-weight: 600; display: flex; justify-content: space-between; gap: 6px; }
+  .cbest { color: var(--accent); font-weight: 500; font-size: 12px; }
+  .cdesc { color: var(--muted); font-size: 11px; }
+  .pp { display: grid; grid-template-columns: 1fr auto; gap: 2px 6px; color: var(--muted); font-size: 11px; margin: 4px 0; }
+  .pp input[type=range] { grid-column: span 2; width: 100%; accent-color: var(--accent); }
+  .pp input[type=text] { grid-column: span 2; background: #181c23; color: var(--text); border: 1px solid var(--line); border-radius: 6px; padding: 5px 7px; font: inherit; }
+  .pp output { color: var(--text); font-variant-numeric: tabular-nums; }
+  .segs { display: grid; gap: 6px; }
+  .seg { background: #181c23; border: 1px solid var(--line); border-radius: 8px; padding: 6px 8px; }
+  .seghead { display: flex; justify-content: space-between; align-items: center; }
+  button.mini { padding: 2px 7px; font-size: 11px; border-radius: 6px; margin-left: 2px; }
+  table.board { width: 100%; border-collapse: collapse; font-size: 12px; font-variant-numeric: tabular-nums; }
+  table.board th { color: var(--muted); font-weight: 500; text-align: left; border-bottom: 1px solid var(--line); padding: 3px 4px; }
+  table.board td { padding: 3px 4px; border-bottom: 1px solid #20252e; }
+  table.board .muted { color: var(--muted); font-size: 11px; }
 
   #hud { position: fixed; top: 12px; right: 12px; background: var(--panel); border: 1px solid var(--line);
     border-radius: 10px; padding: 8px 12px; font-variant-numeric: tabular-nums; min-width: 190px; }
@@ -92,13 +118,25 @@
     <li><b>Click a sphere</b>: select it · <b>drag</b> it to move</li>
     <li><b>Shift + click</b> a sphere: add/remove a stick</li>
     <li><b>Click a stick</b>: muscle <span style="color:#ef4444">■</span> ↔ bone <span style="color:#e8e4da">■</span></li>
-    <li><b>Delete</b>: remove the selected sphere</li>
+    <li><b>Delete</b>: remove the selected sphere · <b>Ctrl+Z</b> / <b>Ctrl+Y</b>: undo / redo</li>
   </ul>
+  <div class="row">
+    <button id="btnUndo" title="Undo (Ctrl+Z)">↶ Undo</button>
+    <button id="btnRedo" title="Redo (Ctrl+Y)">↷ Redo</button>
+    <button id="btnMirror" class="on" title="Build both sides at once">🪞 Mirror: on</button>
+  </div>
+  <div class="row" style="margin-top:6px">
+    <select id="selPhase" class="grow" title="How mirrored muscles move">
+      <option value="anti">Mirrored muscles: alternate (walk)</option>
+      <option value="same">Mirrored muscles: together (hop)</option>
+    </select>
+  </div>
   <h2>Start from</h2>
   <div class="row">
     <select id="selPreset" class="grow">
       <option value="blank">Just the main sphere</option>
       <option value="spider">Spider (4 legs)</option>
+      <option value="walker">Walker (2 legs)</option>
       <option value="jumper">Jumper</option>
       <option value="snake">Snake</option>
       <option value="wheel">Wheel</option>
@@ -122,6 +160,9 @@
   </div>
  </div>
 
+ <div id="coursePanel" hidden></div>
+ <div id="galleryPanel" hidden></div>
+
  <div id="mainPanel">
   <h1>GrowBot <span>Parkour Lab</span></h1>
   <div class="sub">One sphere grows bones &amp; muscles and evolves to beat the course.</div>
@@ -137,7 +178,8 @@
     <input type="range" id="slMusic" min="0" max="1" step="0.05" title="Music volume" class="grow">
   </div>
   <div class="row" style="margin-top:6px">
-    <button id="btnBuild" class="grow">✏ Build your own creature</button>
+    <button id="btnBuild" class="grow">✏ Build a creature</button>
+    <button id="btnCourses" class="grow">🏁 Courses</button>
   </div>
   <div class="row" style="margin-top:6px">
     <label class="check" id="lblTurbo"><input type="checkbox" id="chkTurbo"> Turbo (faster training, choppier view)</label>
@@ -152,7 +194,7 @@
     <div class="stat"><div class="k">Champion fitness</div><div class="v" id="sFit">–</div></div>
     <div class="stat"><div class="k">Avg distance (8 runs)</div><div class="v" id="sDist">–</div></div>
     <div class="stat wide"><div class="k">Champion body</div><div class="v small" id="sBody">–</div></div>
-    <div class="stat"><div class="k">Course level</div><div class="v" id="sLevel">–</div></div>
+    <div class="stat wide"><div class="k">Course · difficulty</div><div class="v small" id="sLevel">–</div></div>
     <div class="stat"><div class="k">Species</div><div class="v" id="sSpecies">–</div></div>
     <div class="stat wide"><div class="k">Champion found in generation</div><div class="v" id="sChampGen">–</div></div>
   </div>
@@ -160,6 +202,11 @@
   <h2>Fitness per generation</h2>
   <canvas id="chart"></canvas>
   <div class="legend"><span><i style="background:var(--series-1)"></i>champion</span><span><i style="background:var(--series-2)"></i>population average</span></div>
+
+  <h2>Where does the champion fail?</h2>
+  <canvas id="failChart"></canvas>
+  <div class="legend"><span><i style="background:#ff7b72"></i>fell</span><span><i style="background:#ffb347"></i>stuck</span><span><i style="background:#8b93a1"></i>time up</span><span><i style="background:#7ee787"></i>finish</span></div>
+  <div class="hint" id="failText"></div>
 
   <h2>Replay</h2>
   <div class="cps" id="cps"></div>
@@ -172,6 +219,9 @@
     <button id="btnReplay">↻ Restart replay</button>
     <label class="check"><input type="checkbox" id="chkFollow" checked> Follow</label>
   </div>
+  <div class="row" style="margin-top:6px">
+    <label class="check" title="The best creatures of the last generation run along as see-through ghosts"><input type="checkbox" id="chkGhosts" checked> 👻 Ghost race (last generation)</label>
+  </div>
   <div class="hint">Drag to orbit · scroll to zoom · right-drag to pan.</div>
 
   <h2>Fitness &amp; growth settings</h2>
@@ -179,6 +229,7 @@
 
   <h2>Save / load</h2>
   <div class="row">
+    <button id="btnGallery" class="grow">🖼 Gallery</button>
     <button id="btnSave">⬇ Download JSON</button>
     <label class="btn">⬆ Load JSON<input type="file" id="fileLoad" accept=".json,application/json" hidden></label>
   </div>
@@ -194,6 +245,7 @@
   <div class="state" id="hState">one sphere</div>
   <div class="big" id="hDist">0.00 m</div>
   <div id="hTime">t = 0.0 s</div>
+  <div id="hRace" class="state"></div>
   <div class="sens">eyes: step <b id="hStep">0</b> · gap <b id="hGap">no</b> · side <b id="hSide">0</b></div>
 </div>
 <div id="toast"></div>
@@ -207,6 +259,7 @@
 <script src="src/core/rng.js"></script>
 <script src="src/core/physics.js"></script>
 <script src="src/core/parkour.js"></script>
+<script src="src/core/tracks.js"></script>
 <script src="src/core/genome.js"></script>
 <script src="src/core/episode.js"></script>
 <script src="src/core/evolution.js"></script>
@@ -218,6 +271,9 @@
 <script src="src/ui/editor.js"></script>
 <script src="src/ui/sound.js"></script>
 <script src="src/ui/music.js"></script>
+<script src="src/ui/courses.js"></script>
+<script src="src/ui/gallery.js"></script>
+<script src="src/ui/failchart.js"></script>
 <script src="src/ui/chart.js"></script>
 <script src="src/ui/main.js"></script>
 </body>

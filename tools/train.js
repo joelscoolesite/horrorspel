@@ -19,7 +19,7 @@ const fs = require('fs');
 const path = require('path');
 
 const root = path.join(__dirname, '..');
-for (const f of ['config', 'dmath', 'rng', 'physics', 'parkour', 'genome', 'episode', 'evolution']) {
+for (const f of ['config', 'dmath', 'rng', 'physics', 'parkour', 'tracks', 'genome', 'episode', 'evolution']) {
   require(path.join(root, 'src', 'core', f + '.js'));
 }
 const G = globalThis.GROW;

@@ -1,0 +1,11 @@
+{
+  "name": "growbot-parkour-lab",
+  "version": "3.0.0",
+  "description": "Een bol die botten en spieren laat groeien en met evolutie een parkour leert.",
+  "private": true,
+  "scripts": {
+    "test": "node tests/run.js",
+    "train": "node tools/train.js"
+  },
+  "license": "MIT"
+}
