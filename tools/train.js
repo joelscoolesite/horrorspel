@@ -89,7 +89,7 @@ const c = evo.champion;
 console.log(`\nKlaar in ${((Date.now() - t0) / 1000).toFixed(0)} s.`);
 console.log(`Kampioen (gen ${c.generation}, gemeten op parcours-level ${Math.round(evo.level * 100)}%): ` +
   `fitness ${c.fitness.toFixed(2)}, gem. ${c.stats.maxX.toFixed(2)} m, ` +
-  `${c.stats.checkpoints.toFixed(1)} checkpoints, finish in ${(c.stats.finishRate * 100).toFixed(0)}% van de 8 testritten`);
+  `${c.stats.checkpoints.toFixed(1)} checkpoints, finish in ${(c.stats.finishRate * 100).toFixed(0)}% van de ${c.stats.trials} testritten`);
 console.log(`Vorm: ${G.Genome.describe(c.genome)}`);
 console.log(`Opgeslagen: ${out}`);
 if (pool) await pool.close();

@@ -10,7 +10,8 @@ Inhoud:
 3. [Beloningsfunctie & groeikosten](#3-beloningsfunctie--groeikosten)
 4. [Hoe het prototype in elkaar zit](#4-architectuur-van-het-prototype)
 5. [Wat de evolutie (tot nu toe) uitvindt](#5-wat-de-evolutie-uitvindt)
-6. [Volgende stappen](#6-volgende-stappen)
+6. [Versie 3: wat erbij kwam, en wat het opleverde](#6-versie-3-wat-erbij-kwam-en-wat-het-opleverde)
+7. [Volgende stappen](#7-volgende-stappen)
 
 ---
 
@@ -240,7 +241,8 @@ echt probleem, gemeten met `tools/train.js`.
    │     dmath.js         deterministische sin/cos/tanh (overal bit-gelijk)
    │     rng.js           random met seed (reproduceerbaar)
    │     physics.js       Verlet + PBD: bollen, stokjes, botsing, wrijving
-   │     parkour.js       de baan (dozen + gedraaide doos voor de helling)
+   │     parkour.js       het Classic-parcours (dozen + gedraaide doos)
+   │     tracks.js        parcoursen uit onderdelen, uitdagingen, sweepers
    │     genome.js        DNA: groeiprogramma + spier-breinen + mutaties
    │     episode.js       één leven: groeien → bewegen → fitness
    │     evolution.js     populatie, soorten, selectie, curriculum
@@ -248,7 +250,10 @@ echt probleem, gemeten met `tools/train.js`.
    ├── src/ui/            ← WEERGAVE
    │     render.js        Three.js-scène
    │     chart.js         fitnessgrafiek
-   │     editor.js        bouw-modus (zelf een wezen ontwerpen)
+   │     editor.js        bouw-modus (spiegel-modus, ongedaan maken)
+   │     courses.js       parcours-editor, uitdagingen, ranglijst
+   │     gallery.js       galerij · failchart.js: "waarom faalt hij?"
+   │     sound.js, music.js  geluid en muziek (Web Audio)
    │     workers.js       training op alle CPU-kernen (Web Workers)
    │     main.js          knoppen, lus: trainen + replay
    │
@@ -269,7 +274,7 @@ echt probleem, gemeten met `tools/train.js`.
     { p:  1, d: [1,0,0],      l: 0.5, r: 0.15 }   // 2: groeit uit bol 1
   ],
   sticks: [
-    { a: 0, b: 1, m: true,  k: 1.0, w: [10 gewichten] },  // spier met eigen brein
+    { a: 0, b: 1, m: true,  k: 1.0, w: [11 gewichten], u: [11] },  // spier: brein + zender
     { a: 1, b: 2, m: false, k: 1.0, w: [...] },           // bot
     { a: 0, b: 2, m: true,  k: 0.1, w: [...] }            // nieuwe, nog zwakke spier
   ]
@@ -293,9 +298,11 @@ volle lengte. Daarna gaan de spieren aan.
   gat?        ─┤                                          (= gewrichtslimiet)
   kanteling   ─┤  "ogen": kijkt 0.5, 1.0 en 1.5 m vooruit
   richting    ─┤  wijst het stokje vooruit?
-  zijwaarts   ─┤  waar op de baan (links/rechts)?
-  bias (1)    ─┘
+  zijwaarts   ─┤  waar op de baan (links/rechts)? (gespiegeld stokje: omgekeerd)
+  bias (1)    ─┤
+  bericht     ─┘  gemiddelde van wat de buur-spieren vorige stap "zeiden"
             × sterkte-gen (0..1) bepaalt hoe hard het stokje trekt
+            en de spier stuurt zelf ook een bericht: tanh(u · ingangen)
 ```
 
 ### Parallel rekenen (alle CPU-kernen)
@@ -377,18 +384,66 @@ populatie, of train langer in de terminal.
 
 ---
 
-## 6. Volgende stappen
+## 6. Versie 3: wat erbij kwam, en wat het opleverde
 
-Gerangschikt van makkelijk naar moeilijk:
+Alle "volgende stappen" uit versie 2 zijn gebouwd. Hieronder per onderdeel
+wat het doet en, waar we het gemeten hebben, wat het opleverde. Eerlijk: niet
+alles is even hard bewezen.
 
-1. **Experimenteer met `config.js`**: spleet breder, trede hoger, meer
-   bollen toestaan. Wat verandert er aan de lichamen?
-2. **Symmetrie-mutatie**: "groei een bol + zijn spiegelbeeld". Dit levert
-   veel sneller stabiele lopers op (Karl Sims deed dit).
-3. **Betere validatie**: wisselende validatie-starts tegen de *winner's curse*.
-4. **Berichten tussen buren** in het spier-brein. Dan wordt het een echte
-   GNN die coördinatie kan leren.
-5. **Web Workers** voor parallelle evaluatie (4–8× sneller). Let op: dan heb
-   je een lokale webserver nodig (`npx serve`), want `file://` blokkeert workers.
-6. **Python-versie**: genoom → MJCF → MuJoCo, met PPO + GNN als binnenste lus
-   (zie hoofdstuk 1 en 2).
+| Onderdeel | Hoe het werkt | Gemeten effect |
+|---|---|---|
+| **Spiegel-gen** | Een groei-stap maakt (70% kans) ook het spiegelbeeld. Spiegel-stokjes **delen hun brein** (`mirOf`), eventueel in tegenfase (`anti`). Koppelingen via vaste `uid`'s, zodat snoeien niets breekt | 2 seeds × 200 generaties, robuuste score op 30 nieuwe starts: **12.2 / 18.4 met** tegen **9.5 / 13.3 zonder**. Maar de winnende wezens waren zelf níet gespiegeld, dus dit verschil is **waarschijnlijk toeval** (te weinig runs). In de bouw-modus helpt spiegelen wél zeker: half zoveel gewichten om te leren |
+| **Berichten tussen spieren** | Elke spier stuurt een getal (`tanh(u·ingangen)`) naar de spieren die een bol met hem delen; het gemiddelde komt binnen als 11e ingang. Een mini *Graph Neural Network* | Niet apart gemeten. Wel getest dat het gedrag verandert als de zendergewichten ≠ 0, en dat oude wezens (zender = 0) bit-identiek blijven |
+| **Wisselende validatie** | Elke 10 generaties 10 nieuwe test-starts; de kampioen wordt opnieuw gemeten | Tegen de *winner's curse* (zie hoofdstuk 3). De getoonde score kan nu ook dálen: dat is eerlijk |
+| **Novelty search** | Na 10 generaties zonder betere kampioen telt ook "nieuw gedrag" mee (verste punt, eindpunt, links/rechts, hoogte), tot 60% | Niet apart gemeten |
+| **Parcoursen uit onderdelen** | 8 soorten onderdelen, waaronder bewegende **sweepers** (positie = functie van de wereld-tijd, dus deterministisch). 6 uitdagingen + eigen banen + lokale ranglijst | Getest: alle uitdagingen bouwen en zijn speelbaar op level 0 / 0.5 / 1; parallel = serieel, ook mét sweepers |
+| **Ghost race** | De 12 beste van de vorige generatie lopen doorzichtig mee, elk in een eigen baan | – |
+| **Galerij, ongedaan maken, faal-grafiek** | localStorage, snapshots van het ontwerp, testruns per kampioen (`stats.runs`) | – |
+| **Python / MuJoCo** | genoom → MJCF, Gymnasium-omgeving, ES (OpenAI-ES + Adam) en PPO (Stable-Baselines3) | Zie hieronder |
+
+### De Python-versie in cijfers
+
+Voorbeeld-wezen 1 (8 bollen, 9 spieren) op het Classic-parcours in MuJoCo,
+gemiddeld over 10 willekeurige starts:
+
+| Brein | Training | Afstand |
+|---|---|---|
+| Geen (spieren in rust) | – | 3.7 m (valt alleen om) |
+| Browser-brein, overgezet | – | **1.2 m** |
+| Evolution Strategies | 50 generaties (~4 min, 4 kernen) | **10.0 m** |
+| PPO | 200.000 stappen (~3 min) | 7.0 m |
+
+Het belangrijkste inzicht: **een brein dat in de ene simulator perfect werkt,
+faalt in een andere.** In de robotica heet dit de *sim-to-real gap*. Robots die
+in simulatie leren, worden daarom getraind met veel variatie (domain
+randomization, zoals wij doen) en daarna bijgetraind op de echte robot.
+
+Twee lessen uit het bouwen van de Python-versie:
+- De eerste ES-versie leerde vooral **stilstaan**: de energiekost (≈ 27) was
+  groter dan de beloning voor afstand (≈ 8). Na het 10× verlagen ervan leerde hij wel.
+- Het opgeslagen "beste" ES-brein haalde eerst maar 2.5 m: hij had geluk gehad
+  op zijn 2 test-starts. Nu slaan we het **gemiddelde** brein op (dat is wat ES
+  echt leert). Dat is dezelfde les als in de browser: wantrouw geluksvogels.
+
+### Automatische tests
+
+`npm test` (12 tests) en `python/test_growbot.py` (3 tests). De belangrijkste:
+- **golden traces**: van elke stap van de voorbeeld-kampioenen wordt een
+  vingerafdruk (hash) vergeleken met een opgeslagen versie. Zo weten we dat
+  symmetrie, berichten en bewegende obstakels oude wezens niet veranderd hebben;
+- **parallel = serieel**: 14 generaties op 1 kern en op 3 workers geven exact
+  dezelfde geschiedenis en kampioen;
+- **fuzz**: 3000 willekeurige mutaties, en elk genoom moet geldig blijven (de
+  spiegel-test vond zo een echte fout: spiegelen rond de verkeerde as).
+
+---
+
+## 7. Volgende stappen
+
+1. **Meer runs per experiment.** De symmetrie-meting gebruikte 2 seeds, en dat
+   is te weinig. Met 10+ seeds per instelling weet je pas echt wat helpt.
+2. **Lichaam én brein in Python**: evolutie kiest het lichaam, PPO leert per
+   lichaam het brein (de "hybride" uit hoofdstuk 1).
+3. **Alle parcoursen in Python** (nu alleen Classic).
+4. **Online ranglijst** om wezens te delen met vrienden (heeft een server nodig).
+5. **Groeifase in MuJoCo** (nu start het wezen daar volgroeid).

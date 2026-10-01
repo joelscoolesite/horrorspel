@@ -57,7 +57,11 @@ node tools/make-example.js champions\champion.json          (wordt de "Example c
 | **Curriculum** | Begint met een vlakke baan zonder gat; wordt steeds 10% moeilijker zodra de kampioen het beheerst |
 | **Muis** | Slepen = draaien · scroll = zoomen · rechts slepen = verschuiven |
 | **Sliders** | Groeikosten, energiekosten, mutatiekans… direct effect |
-| **Download / Load JSON** | Organisme opslaan of delen |
+| **👻 Ghost race** | De 12 beste van de vorige generatie lopen doorzichtig mee (HUD: "race: 3rd of 13") |
+| **🏁 Courses** | Parcoursen kiezen, zelf bouwen, en je kampioen testen voor de ranglijst |
+| **🖼 Gallery** | Je wezens bewaren met naam en plaatje; terugkijken, verder trainen, bewerken |
+| **Where does the champion fail?** | Grafiek die laat zien waar de kampioen in zijn testruns strandt, plus een zin als "Most common problem: fell at the Gap (5 of 10 runs)" |
+| **Download / Load JSON** | Organisme opslaan of delen (ook met Python, zie onder) |
 | **Restore last session** | De browser onthoudt je laatste kampioen |
 
 Geluid: tik/bonk als een bol de grond raakt (grote bol = lage toon), plopje
@@ -82,7 +86,10 @@ Klik **✏ Build your own creature**:
 | **Shift** + klik op een bol | Stokje toevoegen/weghalen tussen die bol en de geselecteerde |
 | Klik op een stokje | Wisselen tussen **spier** (rood, kan bewegen) en **bot** (wit, stijf) |
 | **Delete** | Geselecteerde bol weg |
-| Start from… | Begin met een spin, springer, slang, wiel, of het wezen dat nu in beeld is |
+| **Ctrl+Z / Ctrl+Y** | Ongedaan maken / opnieuw (ook knoppen ↶ ↷) |
+| **🪞 Mirror** | Wat je aan de ene kant bouwt, verschijnt ook aan de andere kant. Spiegel-spieren delen hun brein: half zoveel te leren |
+| Mirrored muscles | *alternate* = om en om (lopen), *together* = tegelijk (springen) |
+| Start from… | Spin, tweebenige walker, springer, slang, wiel, of het wezen dat nu in beeld is |
 
 Daarna **▶ Train this body**: de AI leert een brein voor jouw lichaam.
 Vink *Let evolution change my body too* aan als evolutie jouw ontwerp ook
@@ -90,6 +97,38 @@ mag aanpassen (bollen erbij, stokjes weg…).
 
 Tip: driehoeken maken een lichaam stevig. Een lichaam met alleen botten
 kan niet bewegen; je hebt minstens één spier nodig.
+
+## 🏁 Parcoursen, uitdagingen en ranglijst
+
+Klik **🏁 Courses**:
+
+- **6 uitdagingen**: Classic, Gap Jumper, Staircase, Hurdle Run, Sweeper Alley
+  (bewegende blokken!) en Bumpy Hills.
+- **▶ Train here**: de evolutie traint voortaan op dat parcours.
+- **⏱ Test champion**: je kampioen loopt één keer vanaf de standaardstart. Het
+  resultaat komt in de **ranglijst** van dat parcours (in deze browser). Met ▶
+  in de ranglijst kijk je een run terug.
+- **Course editor**: bouw je eigen parcours uit onderdelen (vlak, gat, helling,
+  trap, horde, trede, sweeper, hobbels), met schuifjes per onderdeel en een live
+  voorbeeld. Daarna **💾 Save course**.
+
+## 🐍 Python-versie (MuJoCo + reinforcement learning)
+
+In de map [`python/`](python/README.md) zit dezelfde wereld in **MuJoCo**, de
+simulator van robotica-onderzoekers. Daar train je een brein met **Evolution
+Strategies** of **PPO** (reinforcement learning). Je wezens uit de browser kun je
+daar inladen (Download JSON).
+
+## ✅ Testen
+
+```bat
+npm test                         (12 tests van de simulatie, ~30 s)
+cd python && py test_growbot.py  (3 tests van de Python-versie)
+```
+
+De belangrijkste test bewaakt dat de voorbeeld-kampioenen **bit-voor-bit**
+hetzelfde blijven lopen, zodat een verbetering nooit stilletjes oude wezens
+kapotmaakt.
 
 ## ⏱ Wat kun je verwachten?
 
@@ -107,8 +146,11 @@ Het volledige ontwerp staat in **[docs/ONTWERP.md](docs/ONTWERP.md)**: de AI-keu
 In het kort:
 
 - **DNA = groeiprogramma**: "laat uit bol 2 een nieuwe bol groeien, 0,6 m schuin omhoog".
+  Met het **spiegel-gen** groeit er tegelijk een bol aan de andere kant.
 - **Elk stokje heeft een eigen mini-brein** (1 neuron) met als ingangen een
-  klok, aanraking met de grond, en "ogen" die zien of er een gat of trede aankomt.
+  klok, aanraking met de grond, "ogen" die zien of er een gat of trede aankomt,
+  en **berichten van de buur-spieren** (een mini Graph Neural Network).
+- **Novelty search**: zit de evolutie lang vast, dan telt ook *nieuw gedrag* mee.
 - **Evolutie**: 60 organismen, de beste krijgen gemuteerde kinderen.
   Mutaties kunnen **groeien** (bol/stokje erbij), **snoeien** of het **brein bijsturen**.
 - **Eigen physics-engine** (Verlet + Position Based Dynamics): zwaartekracht,
@@ -123,15 +165,21 @@ src/core/             simulatie + AI (werkt in browser én Node.js)
                         (o.a. breedte spleet, hoogte trede, max bollen)
   dmath.js            eigen sin/cos/tanh → overal exact dezelfde simulatie
   physics.js          zwaartekracht, stokjes, botsingen, wrijving
-  parkour.js          de baan: pas obstakels hier aan
+  parkour.js          het Classic-parcours
+  tracks.js           parcoursen uit onderdelen + de uitdagingen
   genome.js           DNA + mutaties (groeien/snoeien)
   episode.js          één leven + de fitness-formule
   evolution.js        populatie, soorten, selectie
 src/ui/               3D-weergave (Three.js) + knoppen
-  editor.js           bouw-modus
+  editor.js           bouw-modus (spiegel, ongedaan maken)
+  courses.js          parcours-editor, uitdagingen, ranglijst
+  gallery.js          galerij
+  failchart.js        "waarom faalt hij?"-grafiek
   workers.js          training op alle CPU-kernen (Web Workers)
   sound.js            geluidseffecten (Web Audio, zelf gesynthetiseerd)
   music.js            achtergrondmuziek (sequencer, live gecomponeerd)
 tools/train.js        headless training (ook op alle kernen)
+tests/                npm test (determinisme, golden traces, parallel = serieel)
+python/               MuJoCo + Gymnasium + ES/PPO (zie python/README.md)
 docs/ONTWERP.md       volledig ontwerp + uitleg
 ```

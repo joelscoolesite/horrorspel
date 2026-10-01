@@ -1,0 +1,5 @@
+mujoco>=3.1
+gymnasium>=1.0
+numpy>=1.24
+# alleen nodig voor train_ppo.py (reinforcement learning):
+# stable-baselines3>=2.3
