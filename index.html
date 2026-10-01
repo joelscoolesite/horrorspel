@@ -55,6 +55,8 @@
   .check { display: flex; align-items: center; gap: 6px; color: var(--muted); }
   .hint { color: var(--muted); font-size: 11px; margin-top: 6px; }
   .hint.warn { color: var(--bad); font-size: 12px; min-height: 1em; }
+  .sound-row { align-items: center; }
+  .sound-row input { accent-color: var(--accent); }
   .howto { margin: 0 0 4px; padding-left: 18px; color: var(--muted); font-size: 12px; }
   .howto li { margin: 3px 0; }
   .howto b { color: var(--text); font-weight: 600; }
@@ -126,6 +128,10 @@
   <div class="row">
     <button id="btnTrain" class="primary grow">▶ Start training</button>
     <button id="btnReset" title="New random population">Reset</button>
+  </div>
+  <div class="row sound-row" style="margin-top:6px">
+    <button id="btnSound" title="Sound on/off">🔊</button>
+    <input type="range" id="slVolume" min="0" max="1" step="0.05" title="Volume" class="grow">
   </div>
   <div class="row" style="margin-top:6px">
     <button id="btnBuild" class="grow">✏ Build your own creature</button>
@@ -207,6 +213,7 @@
 <script src="src/ui/render.js"></script>
 <script src="src/ui/workers.js"></script>
 <script src="src/ui/editor.js"></script>
+<script src="src/ui/sound.js"></script>
 <script src="src/ui/chart.js"></script>
 <script src="src/ui/main.js"></script>
 </body>

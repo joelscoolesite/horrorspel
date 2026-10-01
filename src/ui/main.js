@@ -21,6 +21,8 @@
     $('kEps').textContent = `Evaluations/s (${pool.size} CPU core${pool.size > 1 ? 's' : ''})`;
   }
 
+  const sound = new G.Sound();
+
   let evo = newEvolution();
   const view = new G.SceneView($('viewport'));
   view.buildTrack(evo.track);
@@ -98,6 +100,11 @@
     $('btnTrain').textContent = on ? '❚❚ Pause training' : '▶ Start training';
   }
   $('btnTrain').onclick = () => setTraining(!training);
+  const showSound = () => { $('btnSound').textContent = sound.enabled ? '🔊' : '🔇'; };
+  $('btnSound').onclick = () => { sound.unlock(); sound.setEnabled(!sound.enabled); showSound(); };
+  $('slVolume').value = sound.volume;
+  $('slVolume').oninput = e => { sound.setVolume(+e.target.value); if (!sound.enabled) { sound.setEnabled(true); showSound(); } };
+  showSound();
   $('chkTurbo').onchange = e => { turbo = e.target.checked; };
   $('chkCurriculum').checked = !!cfg.evo.curriculum;
   $('chkCurriculum').onchange = e => {
@@ -193,7 +200,8 @@
 
   // ---------------- bouw-modus ----------------
   const editor = new G.Editor(view, cfg, {
-    toast,
+    toast: msg => { sound.ui('error'); toast(msg); },
+    sound: kind => sound.ui(kind),
     onChange: info => {
       $('bInfo').textContent = info.text;
       $('bProblem').textContent = info.problem;
@@ -303,6 +311,36 @@
     cpEls[cpEls.length - 1].classList.toggle('done', replay.finished);
   }
 
+  // ---------------- geluid bij de replay ----------------
+  // Eén simulatiestap + kijken wat er gebeurde: botsing, groei, checkpoint…
+  const vyBefore = [];
+  function stepReplayWithSound() {
+    const W = replay.world, dt = cfg.physics.dt;
+    const wasContact = W.nodes.map(n => n.contact);
+    for (let i = 0; i < W.nodes.length; i++) vyBefore[i] = (W.nodes[i].y - W.nodes[i].oy) / dt;
+    const grown = replay.nextGrow, cpsBefore = replayCps(), wasDone = replay.done;
+    replay.step();
+    // botsing: bol had geen contact en nu wel → tik, harder bij hogere snelheid
+    // (bij 10×/20× snelheid alleen de flinke klappen, anders wordt het herrie)
+    const minHit = speed > 4 ? 2.5 : speed > 1 ? 1.2 : 0.4;
+    for (let i = 0; i < W.nodes.length; i++) {
+      const n = W.nodes[i];
+      if (n.active && n.contact && !wasContact[i] && -vyBefore[i] > minHit) sound.impact(-vyBefore[i], n.r);
+    }
+    if (replay.nextGrow > grown) sound.grow(replay.nextGrow - 1);
+    const cps = replayCps();
+    if (cps > cpsBefore) sound.checkpoint(cps - 1);
+    if (replay.done && !wasDone) {
+      if (replay.finished) sound.finish();
+      else if (replay.dead) sound.fall();
+      else if (replay.reason === 'vastgelopen') sound.stuck();
+    }
+  }
+  function replayCps() {
+    const x = replay.startX + replay.maxX;
+    return evo.track.checkpoints.filter(c => x >= c.x).length;
+  }
+
   // ---------------- hoofd-lus ----------------
   let last = performance.now(), frameNo = 0, lastLevel = evo.level;
   function frame(now) {
@@ -316,6 +354,7 @@
         replayVersion = evo.championVersion;
         saveChampion();
         startReplay(G.Genome.clone(evo.champion.genome));
+        if (lastLevel !== evo.level) sound.levelUp(); else sound.champion();
         toast(lastLevel !== evo.level ? `Course level up → ${Math.round(evo.level * 100)}%`
           : `New champion! fitness ${evo.champion.fitness.toFixed(1)}`);
         lastLevel = evo.level;
@@ -328,7 +367,7 @@
         acc += realDt * speed;
         const dt = cfg.physics.dt;
         let n = 0;
-        while (acc >= dt && n < 400) { replay.step(); acc -= dt; n++; }
+        while (acc >= dt && n < 400) { stepReplayWithSound(); acc -= dt; n++; }
       } else if ((replayWait += realDt) > 2) {
         startReplay(replayGenome);
       }
@@ -344,5 +383,5 @@
   requestAnimationFrame(frame);
 
   // voor in de browser-console: GROW.app.evo enz.
-  G.app = { get evo() { return evo; }, view, startReplay, replayEpisode: () => replay };
+  G.app = { get evo() { return evo; }, view, sound, startReplay, replayEpisode: () => replay };
 })((globalThis.GROW = globalThis.GROW || {}));

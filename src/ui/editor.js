@@ -66,7 +66,7 @@
     constructor(view, cfg, hooks) {
       this.view = view;
       this.cfg = cfg;
-      this.hooks = hooks; // { toast, onChange }
+      this.hooks = hooks; // { toast, onChange, sound }
       this.active = false;
       this.linkMode = false;
       this.design = preset('blank', cfg);
@@ -133,6 +133,7 @@
       const i = d.nodes.push({ x: q.x, y: q.y, z: q.z, r }) - 1;
       d.sticks.push({ a: this.sel, b: i, m: true });
       this.sel = i;
+      this.hooks.sound('add');
       this.refresh();
     }
 
@@ -149,12 +150,13 @@
     toggleStick(a, b) {
       const d = this.design, B = this.cfg.body;
       const k = d.sticks.findIndex(s => (s.a === a && s.b === b) || (s.a === b && s.b === a));
-      if (k >= 0) { d.sticks.splice(k, 1); this.refresh(); return; }
+      if (k >= 0) { d.sticks.splice(k, 1); this.hooks.sound('unlink'); this.refresh(); return; }
       const na = d.nodes[a], nb = d.nodes[b];
       const len = Math.hypot(na.x - nb.x, na.y - nb.y, na.z - nb.z);
       if (len > B.maxStick) return this.hooks.toast(`Too far apart for a stick (${len.toFixed(2)} m, max ${B.maxStick} m)`);
       if (d.sticks.length >= MAX_STICKS) return this.hooks.toast(`Max ${MAX_STICKS} sticks`);
       d.sticks.push({ a, b, m: true });
+      this.hooks.sound('link');
       this.refresh();
     }
 
@@ -165,6 +167,7 @@
       d.sticks = d.sticks.filter(s => s.a !== i && s.b !== i);
       for (const s of d.sticks) { if (s.a > i) s.a--; if (s.b > i) s.b--; }
       this.sel = 0;
+      this.hooks.sound('delete');
       this.refresh();
     }
 
@@ -229,11 +232,13 @@
         if (p) this.addNodeAt(p);
       } else if (hit.type === 'node') {
         if ((pr.shift || this.linkMode) && hit.index !== this.sel) this.toggleStick(this.sel, hit.index);
+        else this.hooks.sound('select');
         this.sel = hit.index;
         this.refresh();
       } else if (hit.type === 'stick') {
         const s = this.design.sticks[hit.index];
         s.m = !s.m;
+        this.hooks.sound('toggle');
         this.refresh();
       }
     }
