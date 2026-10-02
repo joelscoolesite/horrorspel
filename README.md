@@ -41,6 +41,7 @@ Meer opties:
 node tools/train.js --gens 500 --pop 100 --seed 7
 node tools/train.js --from champions\champion.json          (verder trainen)
 node tools/train.js --set fitness.nodeCost=0 --set body.maxNodes=20
+node tools/train.js --ai experimental                         (AI-modus: smart | basic | experimental)
 node tools/make-example.js champions\champion.json          (wordt de "Example champion")
 ```
 
@@ -109,6 +110,27 @@ De replay toont standaard de **beste testrun** van de kampioen (kies *Show:
 standard start* voor de vaste start). Valt hij toch, dan zie je hem nu echt naar
 beneden vallen in plaats van dat het beeld bevriest.
 
+## 🧠 AI-modi en de brein-viewer
+
+Kies in de keuzelijst onder *Curriculum* hoe de AI leert:
+
+| Modus | Wat hij doet |
+|---|---|
+| **🧠 Smart** (standaard) | **Racing**: de 12 beste kandidaten van elke generatie krijgen 3 extra testritten vóór de selectie. Zo wint niet wie toevallig geluk had, maar wie écht goed is |
+| **Basic** | Alleen mutatie + selectie (het snelst) |
+| **🧪 Experimental** | Alles aan: breinen groeien **verborgen neuronen met geheugen** (NEAT-stijl), elke generatie een **gradiënt-stap** (Evolution Strategies) op het brein van de kampioen, **recombinatie** (breinen middelen) en racing |
+
+**🧠 Brain of a muscle** (in het paneel) laat live het neurale netwerk van één
+spier zien: links de 11 ingangen, in het midden de verborgen neuronen (met een
+lusje als ze geheugen hebben), rechts de spier. Oranje = positief, blauw =
+negatief, dik = sterk. De gekozen spier licht wit op in 3D.
+
+**Eerlijk:** we hebben gemeten of de slimme technieken echt helpen (zie
+[docs/ONTWERP.md](docs/ONTWERP.md#7-advanced-ai-wat-hielp-en-wat-niet)). Racing
+was gemiddeld iets beter (16.4 tegen 15.0, over 6 runs). Grotere breinen,
+gradiënt-stappen en recombinatie waren in onze tests **níet** beter. Daarom
+staan die in *Experimental*: probeer zelf of jij het beter krijgt!
+
 ## 🏁 Parcoursen, uitdagingen en ranglijst
 
 Klik **🏁 Courses**:
@@ -133,7 +155,7 @@ daar inladen (Download JSON).
 ## ✅ Testen
 
 ```bat
-npm test                         (12 tests van de simulatie, ~30 s)
+npm test                         (14 tests van de simulatie, ~45 s)
 cd python && py test_growbot.py  (3 tests van de Python-versie)
 ```
 
@@ -186,6 +208,7 @@ src/ui/               3D-weergave (Three.js) + knoppen
   courses.js          parcours-editor, uitdagingen, ranglijst
   gallery.js          galerij
   failchart.js        "waarom faalt hij?"-grafiek
+  brainview.js        live diagram van het brein van een spier
   workers.js          training op alle CPU-kernen (Web Workers)
   sound.js            geluidseffecten (Web Audio, zelf gesynthetiseerd)
   music.js            achtergrondmuziek (sequencer, live gecomponeerd)

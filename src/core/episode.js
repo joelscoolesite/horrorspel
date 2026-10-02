@@ -71,6 +71,7 @@ GROW_MODULE(function (G) {
         W.sticks[W.sticks.length - 1].active = false;
         return {
           rest, act: 0, muscle: s.m, w: pad(s.w), u: s.u ? pad(s.u) : null, grow: null,
+          h: s.h || [], hs: new Float64Array((s.h || []).length), // verborgen neuronen + hun geheugen
           mirror: s.mirOf !== undefined, anti: !!s.anti, // spiegelbeeld: links↔rechts, evt. tegenfase
           msg: 0, msgNext: 0, nbrs: []
         };
@@ -197,13 +198,25 @@ GROW_MODULE(function (G) {
           for (const j of st.nbrs) msgIn += this.sticks[j].msg;
           msgIn /= st.nbrs.length;
         }
-        const sum = w[0] * ss + w[1] * cc + w[2] * prox[ws.a] + w[3] * prox[ws.b] +
+        let sum = w[0] * ss + w[1] * cc + w[2] * prox[ws.a] + w[3] * prox[ws.b] +
           w[4] * step + w[5] * hole + w[6] * tilt + w[7] * fwd + w[8] * sd + w[9] + w[10] * msgIn;
         const u = st.u;
-        if (u) {
-          st.msgNext = M.tanh(u[0] * ss + u[1] * cc + u[2] * prox[ws.a] + u[3] * prox[ws.b] +
-            u[4] * step + u[5] * hole + u[6] * tilt + u[7] * fwd + u[8] * sd + u[9] + u[10] * msgIn);
+        let mpre = u ? u[0] * ss + u[1] * cc + u[2] * prox[ws.a] + u[3] * prox[ws.b] +
+          u[4] * step + u[5] * hole + u[6] * tilt + u[7] * fwd + u[8] * sd + u[9] + u[10] * msgIn : 0;
+        // ADVANCED: verborgen neuronen met geheugen (alleen als het stokje ze heeft)
+        let x = null;
+        if (st.h.length || this.record) x = [ss, cc, prox[ws.a], prox[ws.b], step, hole, tilt, fwd, sd, 1, msgIn];
+        for (let j = 0; j < st.h.length; j++) {
+          const n = st.h[j];
+          let a2 = n.r * st.hs[j];                           // geheugen: vorige waarde
+          for (let q = 0; q < 11; q++) a2 += n.i[q] * x[q];
+          const v = M.tanh(a2);
+          st.hs[j] = v;
+          sum += n.o * v;
+          mpre += n.m * v;
         }
+        if (u) st.msgNext = M.tanh(mpre);
+        if (this.record) { st.lastX = x; st.lastSum = sum; } // voor de brein-viewer
         st.act += (M.tanh(sum) - st.act) * speed; // traag bijsturen: geen schokken
         ws.len = st.rest * (1 + amp * st.act * fade);
         this.energy += Math.abs(st.act) * fade * dt;

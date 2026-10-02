@@ -25,6 +25,17 @@
 //     (ergens anders eindigen, hoger komen…). Dat helpt over muren heen.
 //  5. WISSELENDE TEST — elke 10 generaties krijgt de kampioens-test nieuwe
 //     starts, zodat de evolutie die niet uit het hoofd kan leren.
+//  6. GRADIËNT-STAP (ADVANCED, "Evolution Strategies") — gewone mutaties zijn
+//     blind. Daarom maken we elke generatie ook een paar PROEF-varianten
+//     van het brein van de kampioen: θ + σ·ε en θ − σ·ε. Uit hun scores
+//     schatten we in welke richting het brein beter wordt (de gradiënt),
+//     en we zetten een gerichte stap. Die "getunede" kinderen doen gewoon
+//     mee in de volgende generatie; de selectie beslist of ze goed zijn.
+//
+//         score ▲        ε₁ ●+          θ = huidig brein
+//               │    θ ●───────▶ stap   ε = willekeurige richting
+//               │   ●−                  + beter dan − → die kant op
+//               └────────────────▶ brein-gewichten
 //
 //  SNELHEID — elke run (organisme × start) is een losse TAAK in een
 //  wachtrij. Zonder "pool" draaien de taken hier (één CPU-kern). Met een
@@ -56,6 +67,8 @@ GROW_MODULE(function (G) {
         this.population.push({ genome, fitness: null, stats: null });
       }
       this.history = [];
+      this.probes = [];                 // proef-varianten voor de gradiënt-stap
+      this.tuneStats = { made: 0, wins: 0 };
       this.validation = G.VALIDATION;   // starts voor de kampioens-test
       this.archive = [];                // novelty: gedrag dat we al eens zagen
       this.lastImprove = 0;             // generatie van de laatste verbetering
@@ -81,6 +94,26 @@ GROW_MODULE(function (G) {
       const n = Math.max(1, this.cfg.evo.trials | 0);
       this.trials = this.cfg.evo.nominalTrial ? [G.NOMINAL] : [];
       while (this.trials.length < n) this.trials.push(G.randomVariant(this.rng));
+      // extra starts voor "racing" (zie _startRace)
+      this.raceTrials = [];
+      if (this.cfg.evo.raceTop > 0) {
+        for (let i = 0; i < (this.cfg.evo.raceTrials | 0); i++) this.raceTrials.push(G.randomVariant(this.rng));
+      }
+    }
+
+    // RACING (ADVANCED): de beste kandidaten van deze generatie krijgen extra
+    // testritten vóór de selectie. Zo wint niet wie toevallig 3 goede starts
+    // had, maar wie écht goed is. (Bekende truc voor "ruizige" optimalisatie.)
+    _startRace() {
+      this.phase = 'race';
+      const E = this.cfg.evo;
+      if (!(E.raceTop > 0) || !this.raceTrials.length) return;
+      const order = this.population.map((p, i) => i).sort((a, b) => this.population[b].fitness - this.population[a].fitness);
+      for (const i of order.slice(0, E.raceTop)) {
+        const ind = this.population[i], base = this.trials.length;
+        ind.runs = ind.runs.concat(new Array(this.raceTrials.length).fill(null));
+        this.raceTrials.forEach((variant, k) => this.queue.push({ kind: 'race', i, k: base + k, genome: ind.genome, variant }));
+      }
     }
 
     // Zet alle taken voor de huidige generatie in de wachtrij
@@ -95,6 +128,12 @@ GROW_MODULE(function (G) {
         ind.stats = null;
         ind.fitness = null;
         this.trials.forEach((variant, k) => this.queue.push({ kind: 'eval', i, k, genome: ind.genome, variant }));
+      });
+      // proef-varianten voor de gradiënt-stap (lopen op dezelfde starts → eerlijk vergelijken)
+      (this.probes || []).forEach((pr, p) => {
+        pr.runs = new Array(this.trials.length).fill(null);
+        pr.fitness = null;
+        this.trials.forEach((variant, k) => this.queue.push({ kind: 'probe', p, k, genome: pr.genome, variant }));
       });
       this.jobsTotal = this.queue.length;
       this.jobsDone = 0;
@@ -115,7 +154,8 @@ GROW_MODULE(function (G) {
           continue;
         }
         if (this.queue.length || this.inflight) return false;
-        if (this.phase === 'eval') this._startValidation();
+        if (this.phase === 'eval') this._startRace();
+        else if (this.phase === 'race') this._startValidation();
         else { this._finalize(); return true; }
       }
     }
@@ -151,7 +191,14 @@ GROW_MODULE(function (G) {
     }
 
     _finish(job, summary) {
-      if (job.kind === 'eval') {
+      if (job.kind === 'race') {
+        const ind = this.population[job.i];
+        ind.runs[job.k] = summary;
+        if (ind.runs.every(r => r)) {
+          ind.stats = G.mergeSummaries(ind.runs);
+          ind.fitness = G.computeFitness(ind.stats, this.cfg);
+        }
+      } else if (job.kind === 'eval') {
         const ind = this.population[job.i];
         ind.runs[job.k] = summary;
         this.jobsDone++;
@@ -160,9 +207,80 @@ GROW_MODULE(function (G) {
           ind.fitness = G.computeFitness(ind.stats, this.cfg);
           this.evaluations++;
         }
+      } else if (job.kind === 'probe') {
+        const pr = this.probes[job.p];
+        pr.runs[job.k] = summary;
+        this.jobsDone++;
+        if (pr.runs.every(r => r)) pr.fitness = G.computeFitness(G.mergeSummaries(pr.runs), this.cfg);
       } else {
         this.valRuns[job.c][job.k] = summary;
       }
+    }
+
+    // Nieuwe proef-varianten rond het brein van de kampioen
+    _newProbes() {
+      const E = this.cfg.evo;
+      this.probes = [];
+      if (!E.esTune || !this.champion) return;
+      const base = G.Genome.normalize(G.Genome.clone(this.champion.genome));
+      const theta = G.Genome.getBrain(base);
+      if (!theta.length) return;
+      this.probeBase = { genome: base, theta, eps: [] };
+      for (let k = 0; k < E.esPairs; k++) {
+        const eps = theta.map(() => this.rng.gauss());
+        this.probeBase.eps.push(eps);
+        for (const sign of [1, -1]) {
+          const g = G.Genome.setBrain(G.Genome.clone(base), theta.map((v, i) => v + sign * E.esSigma * eps[i]));
+          this.probes.push({ genome: g, fitness: null, runs: [] });
+        }
+      }
+    }
+
+    // RECOMBINATIE (ADVANCED): de beste DNA's met precies hetzelfde lichaam
+    // als de kampioen → hun breinen gewogen middelen (de beste telt het zwaarst).
+    // Middelen dempt de ruis van toevallige uitschieters (zoals bij CMA-ES).
+    _recombine(sorted) {
+      const E = this.cfg.evo;
+      if (!E.recombine || !this.champion) return [];
+      const sig = g => g.sticks.map(s => `${s.uid}:${s.m ? 1 : 0}:${(s.h || []).length}`).join(',') + '|' + g.nodes.length;
+      const target = sig(this.champion.genome);
+      const same = sorted.filter(p => sig(p.genome) === target);
+      if (same.length < 4) return [];
+      const mu = Math.min(8, Math.floor(same.length / 2));
+      const wts = []; // log-gewichten zoals in CMA-ES
+      for (let i = 0; i < mu; i++) wts.push(Math.log(mu + 0.5) - Math.log(i + 1));
+      const tot = wts.reduce((a, b) => a + b, 0);
+      const vecs = same.slice(0, mu).map(p => G.Genome.getBrain(p.genome));
+      const mean = vecs[0].map((_, i) => vecs.reduce((acc, v, k) => acc + v[i] * wts[k], 0) / tot);
+      const child = G.Genome.setBrain(G.Genome.clone(same[0].genome), mean);
+      child.tuned = this.generation;
+      this.tuneStats.made++;
+      return [child];
+    }
+
+    // Uit de proef-scores de verbeter-richting schatten en 2 getunede kinderen maken
+    _gradientStep() {
+      const pb = this.probeBase, P = this.probes || [];
+      if (!pb || !P.length || P.some(p => p.fitness === null)) return [];
+      // rang-gebaseerd (robuust tegen uitschieters): slechtste −0.5 … beste +0.5
+      const order = P.map((p, i) => i).sort((a, b) => P[a].fitness - P[b].fitness);
+      const rank = new Array(P.length);
+      order.forEach((i, r) => { rank[i] = r / (P.length - 1) - 0.5; });
+      const dim = pb.theta.length, grad = new Array(dim).fill(0);
+      pb.eps.forEach((eps, k) => {
+        const d = rank[2 * k] - rank[2 * k + 1];
+        for (let i = 0; i < dim; i++) grad[i] += d * eps[i];
+      });
+      const norm = Math.sqrt(grad.reduce((s, v) => s + v * v, 0));
+      if (norm < 1e-12) return [];
+      const E = this.cfg.evo, size = E.esSigma * Math.sqrt(dim);
+      return [0.5, 1.0].map(f => {
+        const g = G.Genome.setBrain(G.Genome.clone(pb.genome),
+          pb.theta.map((v, i) => v + f * size * grad[i] / norm));
+        g.tuned = this.generation;          // merkje: gemaakt door de gradiënt-stap
+        this.tuneStats.made++;
+        return g;
+      });
     }
 
     // De beste kandidaten nog eens testen op 8 vaste starts
@@ -207,6 +325,7 @@ GROW_MODULE(function (G) {
           };
           this.championVersion++;
           this.lastImprove = this.generation;
+          if (cand.genome.tuned !== undefined) this.tuneStats.wins++; // de gradiënt-stap won!
         }
       });
 
@@ -214,15 +333,17 @@ GROW_MODULE(function (G) {
         gen: this.generation, best: best.fitness, avg, champ: this.champion.fitness,
         dist: best.stats.maxX, finishRate: best.stats.finishRate,
         nodes: best.genome.nodes.length, sticks: best.genome.sticks.length, species,
-        level: this.level, explore: this.explore
+        level: this.level, explore: this.explore, tuneWins: this.tuneStats.wins
       });
 
       this._novelty(pop);
       // de beste van deze generatie: voor de "ghost race" in de app
       this.ghosts = pop.slice(0, 16).map(p => ({ genome: p.genome, fitness: p.fitness, nodes: p.genome.nodes.length }));
-      this.population = this._breed(pop);
+      const tuned = this._gradientStep().concat(this._recombine(pop));
+      this.population = this._breed(pop, tuned);
       this.generation++;
       this._newTrials();
+      this._newProbes();
 
       // Wisselende test: nieuwe starts, de kampioen moet zich opnieuw bewijzen
       const E0 = this.cfg.evo;
@@ -266,7 +387,7 @@ GROW_MODULE(function (G) {
       if (this.archive.length > 400) this.archive.splice(0, this.archive.length - 400);
     }
 
-    _breed(sorted) {
+    _breed(sorted, extra = []) {
       const E = this.cfg.evo, rng = this.rng;
       const next = [];
       // Elites gaan ongewijzigd door, maar worden opnieuw getest
@@ -292,6 +413,9 @@ GROW_MODULE(function (G) {
         if (protectedCount >= E.speciesElite) break;
         if (!next.some(n => n.genome === members[0].genome)) { keep(members[0]); protectedCount++; }
       }
+
+      // getunede kinderen van de gradiënt-stap doen ook mee
+      for (const g of extra) if (next.length < E.popSize) next.push({ genome: g, fitness: null, stats: null });
 
       // 3. Fitness delen binnen een soort → één soort domineert niet alles
       const minF = sorted[sorted.length - 1].fitness;

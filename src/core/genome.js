@@ -35,6 +35,15 @@
 //  Omdat élk stokje zijn eigen kleine brein heeft, maakt het niet
 //  uit hoeveel stokjes er groeien: het brein groeit gewoon mee.
 //  Met de berichten is het een mini "Graph Neural Network".
+//
+//  ADVANCED: VERBORGEN NEURONEN MET GEHEUGEN (h). Elk stokje kan er een
+//  paar krijgen (net als NEAT: de evolutie voegt ze zelf toe):
+//
+//     ingangen ──▶ (h1) ──┐          h(t) = tanh( i · ingangen + r · h(t−1) )
+//        │   └───▶ (h2) ──┼──▶ spier            ↑ geheugen: eigen vorige waarde
+//        └──────────────────┘   (+ direct, zoals altijd)
+//
+//  Een nieuw neuron begint met uitgangsgewicht 0 → verandert eerst niets.
 GROW_MODULE(function (G) {
   'use strict';
   const clamp = G.clamp;
@@ -95,7 +104,49 @@ GROW_MODULE(function (G) {
     newStick(g, a, b, rng, neutral = false) {
       const w = neutral ? new Array(NIN).fill(0).map(() => rng.gauss() * 0.05) : Genome.randomWeights(rng);
       const u = new Array(NIN).fill(0).map(() => (neutral ? 0 : rng.gauss() * 0.5));
-      return { a, b, m: rng.chance(0.75), k: neutral ? 0 : 1, w, u, uid: Genome.uid(g) };
+      return { a, b, m: rng.chance(0.75), k: neutral ? 0 : 1, w, u, h: [], uid: Genome.uid(g) };
+    },
+
+    // Nieuw verborgen neuron: willekeurige ingangen, maar uitgang 0 → neutraal
+    newHidden(rng) {
+      return { i: new Array(NIN).fill(0).map(() => rng.gauss() * 0.5), r: rng.gauss() * 0.3, o: 0, m: 0 };
+    },
+
+    // Hoeveel getallen heeft het brein? (voor de weergave)
+    brainSize(g) {
+      let n = 0, hidden = 0;
+      for (const s of g.sticks) {
+        if (!s.m || s.mirOf !== undefined) continue;
+        n += 2 * NIN;
+        for (const h of s.h || []) { n += NIN + 3; hidden++; }
+      }
+      return { weights: n, hidden };
+    },
+
+    // Alle brein-getallen van de "echte" spieren (niet de spiegelbeelden) als
+    // één lange lijst — nodig voor de gradiënt-stap (ES) in evolution.js.
+    getBrain(g) {
+      const v = [];
+      for (const s of g.sticks) {
+        if (!s.m || s.mirOf !== undefined) continue;
+        v.push(...s.w, ...s.u);
+        for (const h of s.h || []) v.push(...h.i, h.r, h.o, h.m);
+      }
+      return v;
+    },
+    setBrain(g, v) {
+      let p = 0;
+      for (const s of g.sticks) {
+        if (!s.m || s.mirOf !== undefined) continue;
+        for (let k = 0; k < NIN; k++) s.w[k] = v[p++];
+        for (let k = 0; k < NIN; k++) s.u[k] = v[p++];
+        for (const h of s.h || []) {
+          for (let k = 0; k < NIN; k++) h.i[k] = v[p++];
+          h.r = clamp(v[p++], -1.5, 1.5); h.o = v[p++]; h.m = v[p++];
+        }
+      }
+      Genome.syncMirrors(g);
+      return g;
     },
 
     // Bouwtekening: waar komt elke bol (relatief aan de hoofdbol)?
@@ -169,6 +220,7 @@ GROW_MODULE(function (G) {
         const m = sByUid.get(s.mirOf);
         if (!m || m.mirOf !== undefined) { delete s.mirOf; delete s.anti; continue; }
         s.m = m.m; s.k = m.k; s.w = m.w.slice(); s.u = m.u.slice(); // zelfde brein
+        s.h = (m.h || []).map(h => ({ i: h.i.slice(), r: h.r, o: h.o, m: h.m }));
       }
     },
 
@@ -320,6 +372,7 @@ GROW_MODULE(function (G) {
       Genome.normalize(g);
       g.id = nextId++;
       g.parent = parent.id;
+      delete g.tuned; // kinderen zijn zelf niet "getuned"
       const M = cfg.evo.mut, B = cfg.body;
 
       // lockBody = zelfgebouwd lichaam: alleen het brein mag veranderen
@@ -336,6 +389,18 @@ GROW_MODULE(function (G) {
             if (rng.chance(M.weightReset)) arr[k] = rng.gauss();
             else if (rng.chance(M.weightRate)) arr[k] += rng.gauss() * M.weightSigma;
           }
+        }
+        // verborgen neuronen (alleen in Advanced-modus: addHidden > 0)
+        if (M.addHidden > 0) {
+          s.h = s.h || [];
+          for (const n of s.h) {
+            for (let k = 0; k < NIN; k++) if (rng.chance(M.weightRate)) n.i[k] += rng.gauss() * M.weightSigma;
+            if (rng.chance(M.weightRate)) n.r = clamp(n.r + rng.gauss() * M.weightSigma, -1.5, 1.5);
+            if (rng.chance(M.weightRate)) n.o += rng.gauss() * M.weightSigma;
+            if (rng.chance(M.weightRate)) n.m += rng.gauss() * M.weightSigma;
+          }
+          if (s.m && s.h.length < M.maxHidden && rng.chance(M.addHidden)) s.h.push(Genome.newHidden(rng));
+          if (s.h.length && rng.chance(M.removeHidden)) s.h.splice(rng.int(s.h.length), 1);
         }
         if (lock) continue;
         if (rng.chance(M.toggleMuscle)) s.m = !s.m;
@@ -378,6 +443,7 @@ GROW_MODULE(function (G) {
       for (const s of c.sticks) {
         s.w = Genome.randomWeights(rng);
         s.u = new Array(NIN).fill(0).map(() => rng.gauss() * 0.5);
+        s.h = [];
       }
       Genome.syncMirrors(c);
       return c;
@@ -422,7 +488,7 @@ GROW_MODULE(function (G) {
       design.sticks.forEach((s, k) => {
         const st = {
           a: newIdx[s.a], b: newIdx[s.b], m: !!s.m, k: 1, w: Genome.randomWeights(rng),
-          u: new Array(NIN).fill(0).map(() => rng.gauss() * 0.5), uid: stickUid[k]
+          u: new Array(NIN).fill(0).map(() => rng.gauss() * 0.5), h: [], uid: stickUid[k]
         };
         if (s.mir !== undefined && s.mir >= 0 && s.mir < k) { st.mirOf = stickUid[s.mir]; st.anti = !!s.anti; }
         g.sticks.push(st);
@@ -476,6 +542,8 @@ GROW_MODULE(function (G) {
         pairs.add(key);
         if (!s.w || s.w.length !== NIN || !s.w.every(Number.isFinite)) fail(`stokje ${k} heeft een kapot brein`);
         if (!s.u || s.u.length !== NIN || !s.u.every(Number.isFinite)) fail(`stokje ${k} heeft een kapotte zender`);
+        if (!Array.isArray(s.h) || s.h.length > 8 || !s.h.every(h => h.i.length === NIN &&
+          [...h.i, h.r, h.o, h.m].every(Number.isFinite))) fail(`stokje ${k} heeft kapotte verborgen neuronen`);
         if (uids.has(s.uid)) fail(`dubbele uid ${s.uid}`);
         uids.add(s.uid);
         if (s.mirOf !== undefined) {
@@ -507,6 +575,8 @@ GROW_MODULE(function (G) {
         while (s.w.length < NIN) s.w.push(0);
         s.u = (s.u || []).slice(0, NIN);
         while (s.u.length < NIN) s.u.push(0);
+        s.h = Array.isArray(s.h) ? s.h : [];
+        for (const h of s.h) { h.i = h.i.slice(0, NIN); while (h.i.length < NIN) h.i.push(0); }
         s.m = !!s.m;
         s.k = Number.isFinite(s.k) ? clamp(s.k, 0, 1) : 1;
       }

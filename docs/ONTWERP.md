@@ -11,7 +11,8 @@ Inhoud:
 4. [Hoe het prototype in elkaar zit](#4-architectuur-van-het-prototype)
 5. [Wat de evolutie (tot nu toe) uitvindt](#5-wat-de-evolutie-uitvindt)
 6. [Versie 3: wat erbij kwam, en wat het opleverde](#6-versie-3-wat-erbij-kwam-en-wat-het-opleverde)
-7. [Volgende stappen](#7-volgende-stappen)
+7. [Advanced AI: wat hielp, en wat niet](#7-advanced-ai-wat-hielp-en-wat-niet)
+8. [Volgende stappen](#8-volgende-stappen)
 
 ---
 
@@ -438,7 +439,53 @@ Twee lessen uit het bouwen van de Python-versie:
 
 ---
 
-## 7. Volgende stappen
+## 7. Advanced AI: wat hielp, en wat niet
+
+Gevraagd: "maak de AI advanced". We bouwden vier bekende technieken uit de
+neuro-evolutie en het onderzoek naar Evolution Strategies, en **maten** ze.
+
+| Techniek | Hoe het werkt |
+|---|---|
+| **Verborgen neuronen met geheugen** | Elke spier kan tot 4 neuronen laten groeien: `h(t) = tanh(i·x + r·h(t−1))`. Nieuw neuron = uitgang 0 → neutraal (NEAT-idee). Oude wezens lopen bit-identiek |
+| **Gradiënt-stap (ES)** | 6 paren proef-breinen θ ± σε rond de kampioen, op dezelfde starts als de populatie. Uit de rang-scores volgt een richting; 2 getunede kinderen (½ en 1 stap) doen mee |
+| **Recombinatie** | De beste DNA's met exact hetzelfde lichaam als de kampioen → breinen gewogen gemiddeld (log-gewichten zoals CMA-ES) |
+| **Racing** | De 12 beste van de generatie krijgen 3 extra testritten vóór selectie en validatie |
+
+### Metingen
+
+Classic-parcours, 200 generaties, populatie 60. Score = gemiddelde fitness van
+de kampioen op 30 starts die de evolutie nooit gezien heeft.
+
+| Variant | Seeds | Score per seed | Gemiddeld |
+|---|---|---|---|
+| Basic | 1–6 | 13.9 · 19.7 · 12.1 · 22.3 · 12.3 · 9.6 | 15.0 |
+| **Racing (= Smart)** | 1–6 | 11.9 · 24.2 · 14.2 · 14.8 · 12.0 · 21.5 | **16.4** |
+| Recombinatie | 1–3 | 12.2 · 19.7 · 9.5 | 13.8 |
+| Alleen gradiënt-stap | 1–3 | 12.2 · 14.9 · 12.3 | 13.1 |
+| Verborgen neuronen + gradiënt-stap | 1–3 | 11.0 · 17.6 · 11.1 | 13.2 |
+| Alleen verborgen neuronen | 1–3 | 10.7 · 13.2 · 11.0 | 11.6 |
+
+### Wat we ervan leren
+
+- **"Geavanceerder" is niet automatisch beter.** Grotere breinen hebben meer
+  gewichten, dus een grotere zoekruimte. In een chaotische simulatie (zie
+  hoofdstuk 3: een minimale verandering geeft een totaal andere run) wordt
+  zoeken daar alleen moeilijker van. Misschien helpen ze bij veel langer trainen;
+  dat hebben we niet getest.
+- **De gradiënt-stap** schat een richting uit 12 proeven in een ruimte van
+  ~70–150 gewichten. Met zoveel ruis is die richting nauwelijks beter dan
+  gokken. In de Python-versie (glad, minder chaotisch, honderden proeven) werkt
+  dezelfde techniek wél.
+- **Racing** pakt het echte probleem aan: **ruis**. Wie maar 3 testritten heeft,
+  kan geluk hebben. Racing was gemiddeld 10% beter. Maar met deze spreiding
+  (9.6 tot 24.2 tussen seeds!) is dat **niet hard bewezen**. Het won 3 van de 6
+  seeds. Het kost ~20% extra rekentijd per generatie.
+- De spreiding tussen seeds is groter dan het verschil tussen de methodes. Wil je
+  echt weten wat helpt, dan heb je 20+ runs per variant nodig.
+
+---
+
+## 8. Volgende stappen
 
 1. **Meer runs per experiment.** De symmetrie-meting gebruikte 2 seeds, en dat
    is te weinig. Met 10+ seeds per instelling weet je pas echt wat helpt.

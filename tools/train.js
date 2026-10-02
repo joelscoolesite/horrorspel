@@ -11,6 +11,7 @@
 //    node tools/train.js --set evo.curriculum=0      (meteen het volledige parcours)
 //    node tools/train.js --level 0.5                 (start op halve moeilijkheid)
 //    node tools/train.js --workers 1                 (maar één CPU-kern gebruiken)
+//    node tools/train.js --ai experimental           (AI-modus: smart | basic | experimental)
 //
 //  Het beste organisme wordt opgeslagen in champions/champion.json.
 //  In de browser laad je dat met de knop "Load JSON".
@@ -33,6 +34,7 @@ for (let i = 2; i < process.argv.length; i += 2) {
 const gens = parseInt(args.gens || '100', 10);
 const seed = parseInt(args.seed || '1', 10);
 if (args.pop) G.CONFIG.evo.popSize = parseInt(args.pop, 10);
+if (args.ai) G.applyAIMode(G.CONFIG, args.ai); // --ai smart | basic | experimental
 // --set groep.naam=waarde  (bv. fitness.nodeCost=0.3)
 for (const kv of args.set) {
   const [k, v] = kv.split('=');
@@ -91,6 +93,9 @@ console.log(`Kampioen (gen ${c.generation}, gemeten op parcours-level ${Math.rou
   `fitness ${c.fitness.toFixed(2)}, gem. ${c.stats.maxX.toFixed(2)} m, ` +
   `${c.stats.checkpoints.toFixed(1)} checkpoints, finish in ${(c.stats.finishRate * 100).toFixed(0)}% van de ${c.stats.trials} testritten`);
 console.log(`Vorm: ${G.Genome.describe(c.genome)}`);
+const bs = G.Genome.brainSize(c.genome);
+console.log(`Brein: ${bs.weights} gewichten, ${bs.hidden} verborgen neuronen · ` +
+  `gradiënt-stappen: ${evo.tuneStats.made} gemaakt, ${evo.tuneStats.wins}× nieuwe kampioen`);
 console.log(`Opgeslagen: ${out}`);
 if (pool) await pool.close();
 })();

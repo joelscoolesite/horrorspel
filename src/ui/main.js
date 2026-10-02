@@ -53,6 +53,8 @@
     replayVariant = variant;
     replayLabel = label;
     replay = new G.Episode(genome, track, cfg, variant);
+    replay.record = true; // brein-viewer: ingangen en neuronen onthouden
+    fillMuscles(genome);
     view.setCreature(genome);
     startGhosts(track);
     view.resetCamera(0);
@@ -60,6 +62,32 @@
     acc = 0;
   }
   let replayTrack = null, replayVariant = G.NOMINAL, replayLabel = '';
+
+  // ---------------- brein-viewer ----------------
+  function fillMuscles(genome) {
+    const sel = $('selMuscle'), keep = sel.value;
+    const opts = ['<option value="auto">Auto: the most active muscle</option>'];
+    let n = 0;
+    genome.sticks.forEach((s, k) => {
+      if (!s.m) return;
+      n++;
+      const hid = (s.h || []).length;
+      opts.push(`<option value="${k}">Muscle ${n}${s.mirOf !== undefined ? ' (mirror)' : ''}` +
+        `${hid ? ` · ${hid} hidden neuron${hid > 1 ? 's' : ''}` : ''}</option>`);
+    });
+    sel.innerHTML = opts.join('');
+    if ([...sel.options].some(o => o.value === keep)) sel.value = keep;
+  }
+  function updateBrain() {
+    if (!replay) return;
+    const v = $('selMuscle').value;
+    const k = v === 'auto' || v === '' ? G.brainMostActive(replay) : +v;
+    view.highlight = k;
+    G.drawBrain($('brainCanvas'), replay, k);
+    const bs = G.Genome.brainSize(replay.genome), ts = evo.tuneStats;
+    $('brainText').textContent = `This creature's brain: ${bs.weights} weights, ${bs.hidden} hidden neurons. ` +
+      `Gradient steps: ${ts.made} tried, ${ts.wins}× became the new champion.`;
+  }
 
   // De kampioen laten zien. Standaard zijn BESTE testrun (van de 8–10 starts
   // waarop hij getest is): spannender dan steeds dezelfde mislukte standaardstart.
@@ -162,6 +190,15 @@
   $('chkFollow').onchange = e => { view.follow = e.target.checked; };
   $('chkGhosts').onchange = () => replayGenome && startReplay(replayGenome, replayTrack, replayVariant, replayLabel);
   $('selReplayMode').onchange = () => replayChampion();
+  $('selAI').value = cfg.evo.aiMode || 'smart';
+  $('selAI').onchange = e => {
+    G.applyAIMode(cfg, e.target.value);
+    toast({
+      smart: 'Smart AI: the best candidates get extra test runs, so lucky ones stop winning',
+      basic: 'Basic AI: mutations + selection only (fastest)',
+      experimental: 'Experimental AI: brains grow hidden neurons with memory, plus gradient steps and recombination'
+    }[e.target.value] + ' (from the next generation)');
+  };
   $('selSpeed').onchange = e => { speed = +e.target.value; };
   $('btnReplay').onclick = () => replayGenome && startReplay(replayGenome, replayTrack, replayVariant, replayLabel);
 
@@ -545,7 +582,7 @@
 
     // 3. tekenen
     view.render();
-    if (frameNo++ % 6 === 0) { updatePanel(); updateHud(); }
+    if (frameNo++ % 6 === 0) { updatePanel(); updateHud(); updateBrain(); }
     requestAnimationFrame(frame);
   }
   drawChart();

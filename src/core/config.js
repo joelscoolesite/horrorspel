@@ -82,6 +82,13 @@ GROW_MODULE(function (G) {
       validationSize: 10,   // ...met zoveel starts
       novelty: 0.6,         // max. gewicht van "nieuw gedrag" als de evolutie vastzit (0 = uit)
       lockBody: 0,          // 1 = lichaam ligt vast (zelf gebouwd), alleen het brein evolueert
+      aiMode: 'smart',      // zie AI_MODES onderaan: smart (standaard) | basic | experimental
+      esTune: 0,            // EXPERIMENTAL: elke generatie een gradiënt-stap op het brein van de kampioen
+      esPairs: 6,           // ...met zoveel paren proef-varianten (θ+σε en θ−σε)
+      esSigma: 0.1,         // ...zo ver weg proberen
+      recombine: 0,         // EXPERIMENTAL: breinen van de beste DNA's met hetzelfde lichaam middelen
+      raceTop: 12,          // SMART: de beste 12 krijgen extra testritten vóór de selectie (racing)
+      raceTrials: 3,        // ...zoveel extra
       curriculum: 1,        // 1 = begin makkelijk (geen gat, vlak) en maak het steeds moeilijker
       levelStep: 0.1,       // zoveel moeilijker per keer
       levelPass: 0.5,       // ...zodra de kampioen in ≥50% van zijn testruns over de spleet komt
@@ -95,11 +102,37 @@ GROW_MODULE(function (G) {
         addNode: 0.10,      // GROEI: nieuwe bol + stokje(s)
         symmetric: 0.7,     // kans dat een groei-stap gespiegeld is (links + rechts tegelijk)
         anti: 0.03,         // kans dat een spiegel-spier van fase wisselt (mee ↔ tegen)
+        addHidden: 0,       // EXPERIMENTAL: kans op een nieuw verborgen neuron (met geheugen) per spier (0.04)
+        removeHidden: 0.01,
+        maxHidden: 4,       // max. verborgen neuronen per spier
         addStick: 0.08,     // GROEI: nieuw stokje tussen bestaande bollen
         removeStick: 0.05,  // SNOEI
         removeNode: 0.04    // SNOEI
       }
     }
+  };
+
+  // AI-modi (keuzelijst in de app, of: node tools/train.js --ai smart).
+  // Gemeten op het Classic-parcours, zie docs/ONTWERP.md hoofdstuk 8.
+  G.AI_MODES = {
+    smart: {        // racing: de beste kandidaten krijgen extra testritten
+      label: 'Smart', addHidden: 0, esTune: 0, recombine: 0, raceTop: 12
+    },
+    basic: {        // alleen mutatie + selectie (snelst)
+      label: 'Basic', addHidden: 0, esTune: 0, recombine: 0, raceTop: 0
+    },
+    experimental: { // alles aan: verborgen neuronen met geheugen, gradiënt-stap, recombinatie, racing
+      label: 'Experimental', addHidden: 0.04, esTune: 1, recombine: 1, raceTop: 12
+    }
+  };
+  G.applyAIMode = (cfg, mode) => {
+    const m = G.AI_MODES[mode];
+    if (!m) throw new Error('Onbekende AI-modus: ' + mode);
+    cfg.evo.mut.addHidden = m.addHidden;
+    cfg.evo.esTune = m.esTune;
+    cfg.evo.recombine = m.recombine;
+    cfg.evo.raceTop = m.raceTop;
+    cfg.evo.aiMode = mode;
   };
 
   G.clamp = (v, a, b) => (v < a ? a : v > b ? b : v);

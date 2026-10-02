@@ -173,7 +173,10 @@
         B.sub(A).divideScalar(len || 1);
         m.quaternion.setFromUnitVectors(this._up, B);
         const st = ep.sticks[k];
-        const thick = (m.userData.muscle ? 0.045 : 0.035) * (0.25 + 0.75 * m.userData.k);
+        const hl = k === this.highlight; // spier die in de brein-viewer getoond wordt
+        const thick = (m.userData.muscle ? 0.045 : 0.035) * (0.25 + 0.75 * m.userData.k) * (hl ? 1.9 : 1);
+        m.material.emissive.setHex(hl ? 0xffffff : 0x000000);
+        m.material.emissiveIntensity = hl ? 0.45 : 0;
         m.scale.set(thick, len, thick);
         if (m.userData.muscle) {
           // blauw = samengetrokken, rood = uitgerekt

@@ -63,6 +63,7 @@
   .howto b { color: var(--text); font-weight: 600; }
   button.on { border-color: var(--accent); color: var(--accent); }
   [hidden] { display: none !important; }
+  canvas#brainCanvas { width: 100%; height: 190px; display: block; background: #181c23; border: 1px solid var(--line); border-radius: 8px; margin-top: 6px; }
   canvas#failChart { width: 100%; height: 74px; display: block; background: #181c23; border: 1px solid var(--line); border-radius: 8px; }
   .gallery { display: grid; grid-template-columns: 1fr 1fr; gap: 8px; margin-top: 10px; }
   .gcard { background: #181c23; border: 1px solid var(--line); border-radius: 8px; padding: 6px; }
@@ -189,6 +190,13 @@
     <label class="check" id="lblTurbo"><input type="checkbox" id="chkTurbo"> Turbo (faster training, choppier view)</label>
     <label class="check" title="Start with a flat course without a gap and make it harder each time the champion masters it"><input type="checkbox" id="chkCurriculum" checked> Curriculum (start easy, course gets harder)</label>
   </div>
+  <div class="row" style="margin-top:6px">
+    <select id="selAI" class="grow" title="How the AI learns">
+      <option value="smart">🧠 AI: Smart (top candidates get extra test runs)</option>
+      <option value="basic">AI: Basic (mutations only, fastest)</option>
+      <option value="experimental">🧪 AI: Experimental (big brains with memory + gradient steps)</option>
+    </select>
+  </div>
   <div class="bar"><div id="evalBar"></div></div>
 
   <h2>Evolution</h2>
@@ -206,6 +214,11 @@
   <h2>Fitness per generation</h2>
   <canvas id="chart"></canvas>
   <div class="legend"><span><i style="background:var(--series-1)"></i>champion</span><span><i style="background:var(--series-2)"></i>population average</span></div>
+
+  <h2>🧠 Brain of a muscle</h2>
+  <div class="row"><select id="selMuscle" class="grow" title="Which muscle's brain to show (it glows in 3D)"></select></div>
+  <canvas id="brainCanvas"></canvas>
+  <div class="hint" id="brainText"></div>
 
   <h2>Where does the champion fail?</h2>
   <canvas id="failChart"></canvas>
@@ -285,6 +298,7 @@
 <script src="src/ui/courses.js"></script>
 <script src="src/ui/gallery.js"></script>
 <script src="src/ui/failchart.js"></script>
+<script src="src/ui/brainview.js"></script>
 <script src="src/ui/chart.js"></script>
 <script src="src/ui/main.js"></script>
 </body>

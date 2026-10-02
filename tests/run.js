@@ -53,7 +53,10 @@ test('evolutie is reproduceerbaar (zelfde seed = zelfde geschiedenis)', () => {
   eq(run(), run());
 });
 
-test('mutaties houden genomen geldig (fuzz, 3000 mutaties)', () => {
+test('mutaties houden genomen geldig (fuzz, 3000 mutaties, ook met verborgen neuronen)', () => {
+  const mode = cfg.evo.aiMode || 'smart';
+  G.applyAIMode(cfg, 'experimental'); // alle onderdelen aan, ook verborgen neuronen
+  try {
   const rng = new G.RNG(7);
   let g = G.Genome.initial(rng, cfg);
   for (let i = 0; i < 3000; i++) {
@@ -61,6 +64,7 @@ test('mutaties houden genomen geldig (fuzz, 3000 mutaties)', () => {
     G.Genome.validate(g, cfg);
     if (i % 300 === 0) g = G.Genome.initial(rng, cfg);
   }
+  } finally { G.applyAIMode(cfg, mode); }
 });
 
 test('bouw-modus: ontwerp → genoom → ontwerp houdt de posities', () => {
@@ -106,6 +110,39 @@ test('berichten: met zender-gewichten verandert het gedrag, zonder niet', () => 
   assert(a.hash !== b.hash, 'berichten hebben geen effect');
 });
 
+test('verborgen neuronen: nieuw neuron is neutraal, met gewicht verandert het gedrag', () => {
+  const track = G.buildParkour(cfg, 1), rng = new G.RNG(4);
+  const base = G.Genome.normalize(G.Genome.clone(G.EXAMPLES[1].genome));
+  const neutral = G.Genome.clone(base);
+  for (const st of neutral.sticks) if (st.m) st.h = [G.Genome.newHidden(rng), G.Genome.newHidden(rng)];
+  G.Genome.validate(neutral, null);
+  eq(traceHash(G, neutral, track, cfg, G.NOMINAL).hash, golden.examples[1].traces[0].hash, 'neutraal neuron:');
+  const active = G.Genome.clone(neutral);
+  for (const st of active.sticks) for (const h of st.h) h.o = 1.0;
+  assert(traceHash(G, active, track, cfg, G.NOMINAL).hash !== golden.examples[1].traces[0].hash, 'neuron doet niets');
+  // brein als lijst getallen eruit en er weer in = hetzelfde
+  const v = G.Genome.getBrain(active);
+  const copy = G.Genome.setBrain(G.Genome.clone(active), v);
+  eq(JSON.stringify(G.Genome.getBrain(copy)), JSON.stringify(v));
+});
+
+test('gradiënt-stap: maakt geldige getunede kinderen met een ander brein', () => {
+  const saved = cfg.evo.popSize, mode = cfg.evo.aiMode || 'smart';
+  cfg.evo.popSize = 12;
+  G.applyAIMode(cfg, 'basic'); cfg.evo.esTune = 1;
+  try {
+    const evo = new G.Evolution(cfg, 21);
+    for (let i = 0; i < 3; i++) evo.runGeneration();
+    assert(evo.tuneStats.made >= 4, `te weinig getunede kinderen (${evo.tuneStats.made})`);
+    const tuned = evo.population.filter(p => p.genome.tuned === evo.generation - 1);
+    assert(tuned.length === 2, `getunede kinderen niet in de populatie (${tuned.length})`);
+    for (const t of tuned) {
+      G.Genome.validate(t.genome, cfg);
+      assert(JSON.stringify(G.Genome.getBrain(t.genome)) !== JSON.stringify(G.Genome.getBrain(evo.champion.genome)), 'brein niet veranderd');
+    }
+  } finally { cfg.evo.popSize = saved; G.applyAIMode(cfg, mode); }
+});
+
 test('parcoursen: alle uitdagingen bouwen goed en zijn speelbaar', () => {
   for (const ch of G.CHALLENGES) {
     if (ch.classic) continue;
@@ -135,8 +172,9 @@ test('parallel (worker_threads) geeft exact hetzelfde als één kern', async () 
   const NodePool = require(path.join(__dirname, '..', 'tools', 'pool-node.js'));
   // kleine populatie, veel generaties: zo komen ook de wisselende test (elke 3
   // generaties) en novelty search (na 10 generaties zonder verbetering) aan bod
-  const saved = { pop: cfg.evo.popSize, refresh: cfg.evo.validationRefresh };
+  const saved = { pop: cfg.evo.popSize, refresh: cfg.evo.validationRefresh, race: cfg.evo.raceTop, rec: cfg.evo.recombine };
   cfg.evo.popSize = 14; cfg.evo.validationRefresh = 3;
+  cfg.evo.raceTop = 4; cfg.evo.recombine = 1; // ook racing en recombinatie moeten deterministisch zijn
   const GENS = 14;
   try {
     const a = new G.Evolution(cfg, 9);
@@ -152,6 +190,7 @@ test('parallel (worker_threads) geeft exact hetzelfde als één kern', async () 
     eq(strip(b.champion), strip(a.champion), 'kampioen:');
   } finally {
     cfg.evo.popSize = saved.pop; cfg.evo.validationRefresh = saved.refresh;
+    cfg.evo.raceTop = saved.race; cfg.evo.recombine = saved.rec;
   }
 });
 
