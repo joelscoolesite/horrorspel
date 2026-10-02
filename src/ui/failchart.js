@@ -24,8 +24,13 @@
   };
   const CP_NAMES = { Spleet: 'Gap', Helling: 'Ramp', Horde: 'Hurdle', Trede: 'Step' };
 
-  // Bij welk obstakel hield hij op? (het eerstvolgende checkpoint na zijn verste punt)
-  function obstacleAt(track, x) {
+  // Bij welk obstakel hield hij op? Vastgelopen: het eerstvolgende obstakel.
+  // Gevallen: het dichtstbijzijnde (vaak net over een gat en teruggegleden).
+  function obstacleAt(track, x, reason) {
+    if (reason === 'gevallen' && track.checkpoints.length) {
+      const near = track.checkpoints.reduce((a, c) => (Math.abs(c.x - x) < Math.abs(a.x - x) ? c : a));
+      if (Math.abs(near.x - x) < 2.5) return 'the ' + (CP_NAMES[near.label] || near.label);
+    }
     const cp = track.checkpoints.find(c => c.x > x);
     if (!cp) return x >= track.finishX ? 'the finish' : 'the last stretch';
     return 'the ' + (CP_NAMES[cp.label] || cp.label);
@@ -39,7 +44,7 @@
     // meest voorkomende combinatie (reden + obstakel)
     const count = new Map();
     for (const r of fails) {
-      const key = `${(REASON[r.reason] || { label: r.reason }).label} at ${obstacleAt(track, r.maxX)}`;
+      const key = `${(REASON[r.reason] || { label: r.reason }).label} at ${obstacleAt(track, r.maxX, r.reason)}`;
       count.set(key, (count.get(key) || 0) + 1);
     }
     const [what, n] = [...count.entries()].sort((a, b) => b[1] - a[1])[0];

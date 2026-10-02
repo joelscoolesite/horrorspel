@@ -45,18 +45,36 @@
 
   // ---------------- replay ----------------
   // track = op welk parcours (standaard: het trainingsparcours)
-  function startReplay(genome, track = evo.track) {
+  // variant = vanaf welke start (standaard: de standaardstart)
+  function startReplay(genome, track = evo.track, variant = G.NOMINAL, label = '') {
     if (view.trackRef !== track || !cpEls.length) { view.buildTrack(track); buildChips(track); } // ander parcours/level?
     replayGenome = genome;
     replayTrack = track;
-    replay = new G.Episode(genome, track, cfg);
+    replayVariant = variant;
+    replayLabel = label;
+    replay = new G.Episode(genome, track, cfg, variant);
     view.setCreature(genome);
     startGhosts(track);
     view.resetCamera(0);
     replayWait = 0;
     acc = 0;
   }
-  let replayTrack = null;
+  let replayTrack = null, replayVariant = G.NOMINAL, replayLabel = '';
+
+  // De kampioen laten zien. Standaard zijn BESTE testrun (van de 8–10 starts
+  // waarop hij getest is): spannender dan steeds dezelfde mislukte standaardstart.
+  function replayChampion() {
+    const ch = evo.champion;
+    if (!ch) return startReplay(G.Genome.clone(replayGenome));
+    const runs = (ch.stats && ch.stats.runs) || [];
+    if ($('selReplayMode').value === 'best' && runs.length && runs[0].variant) {
+      const score = r => (r.finished ? 1000 - (r.finishTime || 0) : r.maxX);
+      const i = runs.reduce((bi, r, k) => (score(r) > score(runs[bi]) ? k : bi), 0);
+      return startReplay(G.Genome.clone(ch.genome), evo.track, runs[i].variant,
+        `best of ${runs.length} test runs`);
+    }
+    startReplay(G.Genome.clone(ch.genome), evo.track, G.NOMINAL, 'standard start');
+  }
 
   // ---------------- ghost race ----------------
   // De beste wezens van de laatste generatie lopen doorzichtig mee, elk in
@@ -142,9 +160,10 @@
     else toast('Curriculum on: press Reset to start again from an easy course');
   };
   $('chkFollow').onchange = e => { view.follow = e.target.checked; };
-  $('chkGhosts').onchange = () => replayGenome && startReplay(replayGenome, replayTrack);
+  $('chkGhosts').onchange = () => replayGenome && startReplay(replayGenome, replayTrack, replayVariant, replayLabel);
+  $('selReplayMode').onchange = () => replayChampion();
   $('selSpeed').onchange = e => { speed = +e.target.value; };
-  $('btnReplay').onclick = () => replayGenome && startReplay(replayGenome);
+  $('btnReplay').onclick = () => replayGenome && startReplay(replayGenome, replayTrack, replayVariant, replayLabel);
 
   $('btnReset').onclick = () => {
     cfg.evo.lockBody = 0; // weer gewone evolutie (ook het lichaam)
@@ -210,8 +229,8 @@
       evo.champion = { genome: G.Genome.clone(genome), fitness, stats, generation: evo.generation, level: evo.level };
       evo.championVersion++;
       replayVersion = evo.championVersion;
-    }
-    startReplay(G.Genome.clone(genome));
+      replayChampion();
+    } else startReplay(G.Genome.clone(genome));
     toast(`Loaded ${name}: ${stats.maxX.toFixed(1)} m, fitness ${fitness.toFixed(1)}`);
   }
 
@@ -264,7 +283,7 @@
       setCourseMode(false);
       replayVersion = -1;
       lastLevel = evo.level;
-      startReplay(G.Genome.clone(evo.champion ? evo.champion.genome : replayGenome));
+      replayChampion();
       setTraining(true);
       drawChart();
       toast(`Training on "${courseName}"` + (cfg.evo.curriculum ? ' (curriculum: starts easy)' : ''));
@@ -276,7 +295,7 @@
     $('coursePanel').hidden = !on;
     $('mainPanel').hidden = on;
     if (on) courses.render();
-    else if (replayTrack !== evo.track) startReplay(G.Genome.clone(evo.champion ? evo.champion.genome : replayGenome));
+    else if (replayTrack !== evo.track) replayChampion();
   }
   $('btnCourses').onclick = () => setCourseMode(true);
 
@@ -312,7 +331,7 @@
     $('galleryPanel').hidden = !on;
     $('mainPanel').hidden = on;
     if (on) gallery.render();
-    else if (replayTrack !== evo.track) startReplay(G.Genome.clone(evo.champion ? evo.champion.genome : replayGenome));
+    else if (replayTrack !== evo.track) replayChampion();
   }
   $('btnGallery').onclick = () => setGalleryMode(true);
 
@@ -429,6 +448,7 @@
     else state = 'moving';
     $('hState').textContent = state;
     $('hDist').textContent = replay.maxX.toFixed(2) + ' m';
+    $('hRun').textContent = replayLabel;
     if (ghostEps.length) {
       const score = e => (e.finished ? 1000 - e.finishTime : e.maxX);
       const rank = 1 + ghostEps.filter(e => score(e) > score(replay)).length;
@@ -485,7 +505,7 @@
       if (evo.championVersion !== replayVersion && !courseOpen) {
         replayVersion = evo.championVersion;
         saveChampion();
-        startReplay(G.Genome.clone(evo.champion.genome));
+        replayChampion();
         if (lastLevel !== evo.level) sound.levelUp(); else sound.champion();
         toast(lastLevel !== evo.level ? `Course level up → ${Math.round(evo.level * 100)}%`
           : `New champion! fitness ${evo.champion.fitness.toFixed(1)}`);
@@ -495,17 +515,26 @@
 
     // 2. replay (vaste tijdstap → zelfde resultaat als tijdens training)
     if (replay) {
+      const dt = cfg.physics.dt;
+      acc += realDt * speed;
+      let n = 0;
       if (!replay.done) {
-        acc += realDt * speed;
-        const dt = cfg.physics.dt;
-        let n = 0;
         while (acc >= dt && n < 400) {
           stepReplayWithSound();
           for (const g of ghostEps) if (!g.done) g.step();
           acc -= dt; n++;
         }
-      } else if ((replayWait += realDt) > 2) {
-        startReplay(replayGenome);
+      } else {
+        // Na afloop loopt de physics door: je ziet hem écht in het gat vallen,
+        // en de geesten racen verder. Na een finish even genieten, na een val snel opnieuw.
+        while (acc >= dt && n < 400) {
+          if (replay.dead) replay.world.step(dt);
+          for (const g of ghostEps) if (!g.done) g.step();
+          acc -= dt; n++;
+        }
+        replayWait += realDt;
+        const wait = replay.finished ? 3 : replay.dead ? 1.8 : 1.2;
+        if (replayWait > wait) startReplay(replayGenome, replayTrack, replayVariant, replayLabel);
       }
       view.update(replay);
       view.updateGhosts(ghostEps);

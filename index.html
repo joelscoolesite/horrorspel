@@ -138,7 +138,8 @@
       <option value="spider">Spider (4 legs)</option>
       <option value="walker">Walker (2 legs)</option>
       <option value="jumper">Jumper</option>
-      <option value="snake">Snake</option>
+      <option value="snake">Snake (heavy part in the middle)</option>
+      <option value="snake-head">Snake (head first: falls into gaps!)</option>
       <option value="wheel">Wheel</option>
       <option value="current">The creature on screen</option>
     </select>
@@ -153,6 +154,9 @@
   </div>
   <div class="stat wide" style="margin-top:10px"><div class="k">Your creature</div><div class="v small" id="bInfo">–</div></div>
   <div class="hint warn" id="bProblem"></div>
+  <div class="hint">💡 The orange main sphere weighs as much as 4 small ones. Put it in the
+    <b>middle</b> of the body: then the front can reach across a gap while the back still
+    holds on, like a bridge. At the front, it pulls the creature into the gap.</div>
   <label class="check" style="margin-top:10px"><input type="checkbox" id="chkEvolveBody"> Let evolution change my body too</label>
   <div class="row" style="margin-top:10px">
     <button id="btnTrainDesign" class="primary grow">▶ Train this body</button>
@@ -217,6 +221,12 @@
       <option value="10">10×</option><option value="20">20×</option>
     </select>
     <button id="btnReplay">↻ Restart replay</button>
+  </div>
+  <div class="row" style="margin-top:6px">
+    <select id="selReplayMode" class="grow" title="Which run of the champion to show">
+      <option value="best">Show: best test run</option>
+      <option value="std">Show: standard start</option>
+    </select>
     <label class="check"><input type="checkbox" id="chkFollow" checked> Follow</label>
   </div>
   <div class="row" style="margin-top:6px">
@@ -246,6 +256,7 @@
   <div class="big" id="hDist">0.00 m</div>
   <div id="hTime">t = 0.0 s</div>
   <div id="hRace" class="state"></div>
+  <div id="hRun" class="sens"></div>
   <div class="sens">eyes: step <b id="hStep">0</b> · gap <b id="hGap">no</b> · side <b id="hSide">0</b></div>
 </div>
 <div id="toast"></div>

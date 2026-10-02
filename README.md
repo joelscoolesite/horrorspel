@@ -98,6 +98,17 @@ mag aanpassen (bollen erbij, stokjes weg…).
 Tip: driehoeken maken een lichaam stevig. Een lichaam met alleen botten
 kan niet bewegen; je hebt minstens één spier nodig.
 
+Tip 2: de oranje hoofdbol weegt evenveel als 4 kleine bollen. Zet hem in het
+**midden** van het lichaam. Dan ligt de voorkant al aan de overkant van een gat
+terwijl de achterkant nog vasthoudt, als een brug. Zit hij vooraan, dan trekt
+hij het wezen het gat in. Probeer zelf: *Snake (heavy part in the middle)*
+tegen *Snake (head first)*. In onze test scoorde de slang met het zware deel in
+het midden 18–20 in plaats van 13–14, en haalde hij vanaf de standaardstart de finish.
+
+De replay toont standaard de **beste testrun** van de kampioen (kies *Show:
+standard start* voor de vaste start). Valt hij toch, dan zie je hem nu echt naar
+beneden vallen in plaats van dat het beeld bevriest.
+
 ## 🏁 Parcoursen, uitdagingen en ranglijst
 
 Klik **🏁 Courses**:

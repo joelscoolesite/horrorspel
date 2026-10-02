@@ -59,14 +59,16 @@
         stick(knee, foot, true);
         stick(root, foot, true);
       }
-    } else if (name === 'snake') {
+    } else if (name === 'snake' || name === 'snake-head') {
+      // De zware hoofdbol in het MIDDEN: dan kan de slang een brug over een
+      // gat maken (kop al aan de overkant, staart nog aan deze kant).
+      // 'snake-head' = de oude versie met de hoofdbol als kop (valt in gaten).
       const root = node(0, R, 0, R);
-      let prev = root, prev2 = -1;
-      for (let i = 1; i <= 5; i++) {
-        const n = node(-0.55 * i, r, 0);
-        stick(prev, n, false);
-        if (prev2 >= 0) stick(prev2, n, true);
-        prev2 = prev; prev = n;
+      const chain = name === 'snake' ? [1.1, 0.55, 0, -0.55, -1.1, -1.65] : [0, -0.55, -1.1, -1.65, -2.2, -2.75];
+      const ids = chain.map(x => (x === 0 ? root : node(x, r, 0)));
+      for (let i = 1; i < ids.length; i++) {
+        stick(ids[i - 1], ids[i], false);
+        if (i >= 2) stick(ids[i - 2], ids[i], true);
       }
     } else if (name === 'wheel') {
       const root = node(0, 0.9, 0, R);

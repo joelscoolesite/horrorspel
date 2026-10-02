@@ -261,6 +261,7 @@ GROW_MODULE(function (G) {
         sticks: this.genome.sticks.length,
         dead: this.dead,
         reason: this.reason,
+        variant: this.variant,             // vanaf welke start (zo kun je de run terugkijken)
         endX: this.root.x - this.startX,   // waar stond hij aan het eind?
         finalZ: this.root.z,               // hoe ver naar links/rechts?
         maxY: this.maxY,                   // hoe hoog kwam de hoofdbol?
@@ -301,7 +302,8 @@ GROW_MODULE(function (G) {
       endX: avg('endX'),
       finalZ: avg('finalZ'),
       maxY: avg('maxY'),
-      runs: list.map(r => ({ endX: r.endX, maxX: r.maxX, reason: r.reason, finished: r.finished })),
+      runs: list.map(r => ({ endX: r.endX, maxX: r.maxX, reason: r.reason, finished: r.finished,
+        finishTime: r.finishTime, variant: r.variant })),
       trials: list.length,
       first: list[0]
     };
